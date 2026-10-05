@@ -1,0 +1,298 @@
+# Aggregated inference (theory supplement S7, S8):
+#   category-level LRCQ (annotation enrichment, annotation regression,
+#   phenotype-category contrasts) and gene/pathway-level LRCP with the
+#   conditional Gaussian null.
+
+#' Exact variance of a weighted quadratic form in Z-scores
+#'
+#' Theorem 3.10 / eq. (7.1) of the theory supplement: for Gaussian Z with
+#' \eqn{Cov(vec Z) = \Gamma \otimes R + T \otimes G},
+#' \deqn{Var(\sum_a u_a z_a' A z_a) = 2[\tau_{RR} u'(\Gamma\circ\Gamma)u +
+#'   2\tau_{RG} u'(\Gamma\circ T)u + \tau_{GG} u'(T\circ T)u],}
+#' \eqn{\tau_{XY} = tr(AXAY)}.
+#'
+#' @param A Symmetric m-by-m matrix of the quadratic form.
+#' @param u Length-q trait weights.
+#' @param R LD matrix.
+#' @param G \eqn{R S_w R} (genetic part of the Z covariance, per unit of
+#'   \eqn{t_{ab}}).
+#' @param Gamma q-by-q intercept matrix.
+#' @param Tm q-by-q scale matrix \eqn{t_{ab} = \sqrt{n_a n_b} h_{ab}/M}.
+#' @export
+quadform_var <- function(A, u, R, G, Gamma, Tm) {
+  AR <- A %*% R
+  AG <- A %*% G
+  tRR <- sum(AR * t(AR)); tRG <- sum(AR * t(AG)); tGG <- sum(AG * t(AG))
+  2 * (tRR * sum(u * ((Gamma^2) %*% u)) + 2 * tRG * sum(u * ((Gamma * Tm) %*% u)) +
+         tGG * sum(u * ((Tm^2) %*% u)))
+}
+
+#' Pseudo-inverse of a symmetric PSD matrix
+#' @keywords internal
+psd_inverse <- function(D, tol = 1e-8) {
+  e <- eigen((D + t(D)) / 2, symmetric = TRUE)
+  keep <- e$values > tol * max(e$values)
+  e$vectors[, keep, drop = FALSE] %*% (t(e$vectors[, keep, drop = FALSE]) / e$values[keep])
+}
+
+#' Trait weights for LRCQ aggregates
+#'
+#' @param n,gcov,M As in [lrcq()].
+#' @param type \code{"power"}: \eqn{u = s/\|s\|^2} (OLS, Proposition 3.2);
+#'   \code{"equal"}: \eqn{u_a = 1/(q s_a)}; \code{"contrast"}: \eqn{u_a =
+#'   s_a/\|s_{g_1}\|^2} on group 1 and \eqn{-s_a/\|s_{g_2}\|^2} on group 2.
+#' @param groups For \code{"contrast"}: length-q vector with values 1, 2 or
+#'   \code{NA} (trait unused).
+#' @export
+trait_weights <- function(n, gcov, M, type = c("power", "equal", "contrast"),
+                          groups = NULL) {
+  type <- match.arg(type)
+  h2 <- if (is.null(dim(gcov))) gcov else diag(gcov)
+  s <- n * h2 / M
+  switch(type,
+    power = s / sum(s^2),
+    equal = 1 / (length(s) * s),
+    contrast = {
+      u <- numeric(length(s))
+      g1 <- which(groups == 1); g2 <- which(groups == 2)
+      u[g1] <- s[g1] / sum(s[g1]^2)
+      u[g2] <- -s[g2] / sum(s[g2]^2)
+      u
+    })
+}
+
+#' Category-level LRCQ: fold-enrichment of a SNP annotation
+#'
+#' Clump-level, model-free category enrichment (theory supplement S7.2a):
+#' \deqn{\hat E_c = \sum_k f_k \hat W_k / \sum_k f_k g_k,}
+#' where \eqn{\hat W_k} are tag-set clump totals ([lrcq_window()] with
+#' \code{tags}), \eqn{g_k} the clump sizes and \eqn{f_k = |c \cap k|/g_k}.
+#' Unlike the per-SNP average \eqn{1_c'\hat w/|c|}, this stays well
+#' conditioned when a category splits LD clumps. The variance is exact under
+#' cross-trait correlation and sample overlap (eq. 7.1 with
+#' \eqn{A = Diag(L'f)/\sum f_k g_k}). With
+#' \code{u = trait_weights(..., "contrast", groups)} it returns the
+#' phenotype-category contrast \eqn{\hat E_c^{(g_1)} - \hat E_c^{(g_2)}}
+#' (S7.4).
+#'
+#' @param Z m-by-q Z-scores aligned to \code{ld}.
+#' @param ld An \code{lrcpq_ld} object (blocks are treated as independent).
+#' @param annot Logical or 0/1 vector (length m) marking the annotation, or a
+#'   matrix with one column per annotation.
+#' @param n,gcov,M,intercept As in [lrcq()].
+#' @param u Trait weights (default power weights, matching OLS).
+#' @param tag_r2 Pruning threshold defining clumps.
+#' @param plugin Rectification applied to the power-weighted clump totals
+#'   that enter the genetic part of the variance.
+#' @param w_plugin Optional per-SNP enrichment for the variance instead (e.g.
+#'   the truth in a simulation, or estimates from independent traits).
+#'
+#' @section Phenotype-category contrasts: with sparse, heavy-tailed
+#'   enrichment the data-based plug-in makes the contrast z-statistic
+#'   self-normalising (the same dominant clumps drive the numerator and the
+#'   SE), so the test is conservative: in a 4-cluster, full-overlap simulation
+#'   the null z had SD 0.81 and no rejections at 5\%. Supply \code{w_plugin}
+#'   from independent data for calibrated contrast tests.
+#' @return Data frame with one row per annotation: \code{size}, \code{E},
+#'   \code{se}, \code{z} (for \eqn{E = 1}, or 0 for a contrast), \code{p}.
+#' @export
+lrcq_category <- function(Z, ld, annot, n, gcov, M, intercept = NULL,
+                          u = NULL, tag_r2 = 0.5, plugin = "A",
+                          w_plugin = NULL) {
+  Z <- as.matrix(Z)
+  q <- ncol(Z)
+  annot <- as.matrix(annot) * 1
+  if (is.null(dim(gcov))) gcov <- diag(gcov, q)
+  if (is.null(intercept)) intercept <- diag(q)
+  if (is.null(dim(intercept))) intercept <- diag(intercept, q)
+  if (is.null(u)) u <- trait_weights(n, gcov, M, "power")
+  upow <- trait_weights(n, gcov, M, "power")
+  Tm <- scale_matrix(n, gcov, M)
+  Cd <- diag(intercept)
+  K <- ncol(annot)
+  num <- den <- vr <- numeric(K)
+  for (b in unique(ld$block_id)) {
+    idx <- which(ld$block_id == b)
+    if (!any(annot[idx, ] != 0)) next
+    R <- ld$get(idx)
+    D <- ld_r2(R, ld$N)
+    e <- eigen(D, symmetric = TRUE)
+    if (min(e$values) < 0) D <- e$vectors %*% (pmax(e$values, 0) * t(e$vectors))
+    tg <- prune_ld(R, tag_r2)
+    DT <- D[, tg, drop = FALSE]
+    L <- solve(crossprod(DT), t(DT))                       # p x m
+    clump <- tg[apply(abs(R[, tg, drop = FALSE]), 1, which.max)]
+    gk <- as.vector(table(factor(clump, levels = tg)))
+    Y <- Z[idx, , drop = FALSE]^2 - matrix(Cd, length(idx), q, byrow = TRUE)
+    ybar <- as.vector(Y %*% u)
+    # genetic part of the variance from power-weighted clump totals (rectified)
+    Wpow <- rectify_w(as.vector(L %*% (Y %*% upow)), plugin)
+    wexp <- numeric(length(idx)); wexp[tg] <- pmax(Wpow, 0)
+    if (!is.null(w_plugin)) wexp <- pmax(w_plugin[idx], 0)
+    G <- R %*% (wexp * R)
+    for (k in seq_len(K)) {
+      a <- annot[idx, k]
+      if (!any(a != 0)) next
+      fk <- as.vector(tapply(a, factor(clump, levels = tg), sum)) / gk
+      fk[is.na(fk)] <- 0
+      lf <- as.vector(crossprod(L, fk))
+      num[k] <- num[k] + sum(lf * ybar)
+      den[k] <- den[k] + sum(fk * gk)
+      vr[k] <- vr[k] + quadform_var(diag(lf, length(lf)), u, R, G, intercept, Tm)
+    }
+  }
+  E <- num / den
+  se <- sqrt(vr) / den
+  contrast <- any(u < 0)
+  z <- if (contrast) E / se else (E - 1) / se
+  data.frame(annotation = colnames(annot) %||% seq_len(K),
+             size = colSums(annot), E = E, se = se, z = z,
+             p = 2 * stats::pnorm(-abs(z)))
+}
+
+#' Annotation regression for LRCQ
+#'
+#' \eqn{\hat\tau = (\sum_b A_b' D_b^2 A_b)^{-1} \sum_b A_b' D_b \bar y_b}
+#' (theory supplement S7.3): conditional effects of annotations on \eqn{w},
+#' stable under tight LD because no \eqn{D^{-1}} is needed. The estimand is
+#' the \eqn{D^2}-weighted projection of \eqn{w} on the annotation span.
+#' Standard errors are exact (eq. 7.1 with
+#' \eqn{A_b = Diag(D_b A_b S^{-1} e_k)}), with a delete-one-block jackknife
+#' alongside.
+#'
+#' @param annot m-by-K annotation matrix; a column of 1s is added if absent.
+#' @inheritParams lrcq_category
+#' @return Data frame with \code{tau}, \code{se} (exact), \code{se_jk},
+#'   \code{z}.
+#' @export
+lrcq_annot_regression <- function(Z, ld, annot, n, gcov, M, intercept = NULL,
+                                  u = NULL) {
+  Z <- as.matrix(Z)
+  q <- ncol(Z)
+  A <- as.matrix(annot)
+  if (!any(apply(A, 2, function(x) all(x == 1)))) A <- cbind(base = 1, A)
+  if (is.null(dim(gcov))) gcov <- diag(gcov, q)
+  if (is.null(intercept)) intercept <- diag(q)
+  if (is.null(dim(intercept))) intercept <- diag(intercept, q)
+  if (is.null(u)) u <- trait_weights(n, gcov, M, "power")
+  Tm <- scale_matrix(n, gcov, M)
+  Cd <- diag(intercept)
+  K <- ncol(A)
+  blocks <- unique(ld$block_id)
+  XtX <- array(0, c(K, K, length(blocks)))
+  Xty <- matrix(0, K, length(blocks))
+  cache <- vector("list", length(blocks))
+  upow <- trait_weights(n, gcov, M, "power")
+  ybar_pow <- function(idx) as.vector((Z[idx, , drop = FALSE]^2 -
+    matrix(Cd, length(idx), q, byrow = TRUE)) %*% upow)
+  for (bi in seq_along(blocks)) {
+    idx <- which(ld$block_id == blocks[bi])
+    R <- ld$get(idx)
+    D <- ld_r2(R, ld$N)
+    ybar <- as.vector((Z[idx, , drop = FALSE]^2 -
+                         matrix(Cd, length(idx), q, byrow = TRUE)) %*% u)
+    DA <- D %*% A[idx, , drop = FALSE]
+    XtX[, , bi] <- crossprod(DA)
+    Xty[, bi] <- crossprod(DA, ybar)
+    # genetic part of the variance from rectified clump totals (model-free)
+    e <- eigen(D, symmetric = TRUE)
+    Dp <- if (min(e$values) < 0) e$vectors %*% (pmax(e$values, 0) * t(e$vectors)) else D
+    tg <- prune_ld(R, 0.5)
+    DT <- Dp[, tg, drop = FALSE]
+    Wk <- rectify_w(as.vector(solve(crossprod(DT), crossprod(DT, ybar_pow(idx)))), "A")
+    wexp <- numeric(length(idx)); wexp[tg] <- pmax(Wk, 0)
+    cache[[bi]] <- list(idx = idx, R = R, DA = DA, G = R %*% (wexp * R))
+  }
+  S <- apply(XtX, c(1, 2), sum); sv <- rowSums(Xty)
+  tau <- solve(S, sv)
+  Si <- solve(S)
+  vr <- numeric(K)
+  for (bi in seq_along(blocks)) {
+    cb <- cache[[bi]]
+    G <- cb$G
+    for (k in seq_len(K)) {
+      d <- as.vector(cb$DA %*% Si[, k])
+      vr[k] <- vr[k] + quadform_var(diag(d, length(d)), u, cb$R, G, intercept, Tm)
+    }
+  }
+  nb <- length(blocks)
+  jk <- t(vapply(seq_len(nb), function(b) solve(S - XtX[, , b], sv - Xty[, b]), numeric(K)))
+  se_jk <- sqrt((nb - 1) / nb * colSums(sweep(jk, 2, colMeans(jk))^2))
+  data.frame(annotation = colnames(A) %||% seq_len(K), tau = tau,
+             se = sqrt(vr), se_jk = se_jk, z = tau / sqrt(vr))
+}
+
+`%||%` <- function(a, b) if (is.null(a)) b else a
+
+#' Gene-level LRCP between two distal windows
+#'
+#' Burden covariance \eqn{\hat C_{GH} = \|s\|^{-2}\sum_a s_a (g_G'z_{Aa})
+#' (h_H'z_{Ba})}, \eqn{g_G = R_A[T,T]^{-1} v_G} (theory supplement eq. 8.1),
+#' with the conditional Gaussian null of eq. (8.2), which is exact under any
+#' cross-trait correlation and sample overlap. Within the window pair, a
+#' max-|T| adjustment controls the family-wise error rate.
+#'
+#' @param ZA,ZB Tag Z-scores (tags-by-q) of the two windows.
+#' @param RA,RB Tag LD matrices.
+#' @param VA,VB Tag-by-gene weight matrices (e.g. indicators of each gene's
+#'   tags); identity gives tag-level results.
+#' @param n,gcov,M,intercept As in [lrcq()].
+#' @param GA Genetic part \eqn{R_A S_w R_A} on window A's tags (default from
+#'   [local_variance()] assuming no local correlation).
+#' @param n_sim Gaussian draws for the max-|T| adjustment (0 to skip).
+#' @return List with \code{C} (genes A by genes B), \code{se}, \code{z},
+#'   \code{p}, \code{p_maxT} (FWER-adjusted within the window pair),
+#'   \code{Q} (orientation-free Frobenius statistic of the tag-level matrix)
+#'   and \code{p_Q} (Liu-Satterthwaite).
+#' @export
+lrcp_gene <- function(ZA, ZB, RA, RB, VA = diag(nrow(ZA)), VB = diag(nrow(ZB)),
+                      n, gcov, M, intercept = NULL, GA = NULL, n_sim = 10000) {
+  ZA <- as.matrix(ZA); ZB <- as.matrix(ZB)
+  q <- ncol(ZA)
+  if (is.null(dim(gcov))) gcov <- diag(gcov, q)
+  if (is.null(intercept)) intercept <- diag(q)
+  if (is.null(dim(intercept))) intercept <- diag(intercept, q)
+  s <- n * diag(gcov) / M
+  ss <- sum(s^2)
+  Tm <- scale_matrix(n, gcov, M)
+  RA <- as.matrix(RA); RB <- as.matrix(RB)
+  if (is.null(GA)) {
+    vA <- pmax(local_variance(ZA, RA, seq_len(nrow(ZA)), n, gcov, M, intercept), 0)
+    GA <- RA %*% (vA * RA)
+  }
+  stat <- function(VA, VB) {
+    g <- solve(RA, VA); h <- solve(RB, VB)
+    X <- crossprod(g, ZA)          # genesA x q
+    Y <- crossprod(h, ZB)          # genesB x q
+    C <- X %*% (s * t(Y)) / ss
+    sY <- t(Y) * s                 # q x genesB, s_a y_aH
+    KG <- crossprod(sY, intercept %*% sY)
+    KT <- crossprod(sY, Tm %*% sY)
+    MR <- crossprod(g, RA %*% g)
+    MG <- crossprod(g, GA %*% g)
+    V <- (kronecker(KG, MR) + kronecker(KT, MG)) / ss^2   # vec(C), A fastest
+    list(C = C, V = V)
+  }
+  st <- stat(as.matrix(VA), as.matrix(VB))
+  se <- matrix(sqrt(pmax(diag(st$V), 0)), nrow(st$C))
+  z <- st$C / se
+  p <- 2 * stats::pnorm(-abs(z))
+  p_maxT <- NULL
+  if (n_sim > 0) {
+    sd <- sqrt(pmax(diag(st$V), 1e-300))
+    Cor <- st$V / outer(sd, sd)
+    L <- psd_factor(Cor)
+    sims <- L %*% matrix(stats::rnorm(nrow(L) * n_sim), nrow(L))
+    mx <- apply(abs(sims), 2, max)
+    p_maxT <- matrix(vapply(abs(as.vector(z)), function(t) mean(mx >= t), 0), nrow(st$C))
+  }
+  # orientation-free Q on tag level
+  tl <- stat(diag(nrow(ZA)), diag(nrow(ZB)))
+  Q <- sum(tl$C^2)
+  ev <- eigen(tl$V, symmetric = TRUE, only.values = TRUE)$values
+  ev <- ev[ev > 0]
+  # Liu-Satterthwaite: Q ~ a chi2_d, a = sum ev^2 / sum ev, d = (sum ev)^2 / sum ev^2
+  a <- sum(ev^2) / sum(ev); d <- sum(ev)^2 / sum(ev^2)
+  list(C = st$C, se = se, z = z, p = p, p_maxT = p_maxT, Q = Q,
+       p_Q = stats::pchisq(Q / a, d, lower.tail = FALSE))
+}

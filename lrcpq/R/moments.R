@@ -154,6 +154,9 @@ expected_trait_cov <- function(k, R, w, Rb = NULL, n, gcov, M, intercept = NULL,
 }
 
 #' Effective number of traits for a SNP pair
+#'
+#' A single-number summary that is exact for null standard errors only; for
+#' power use [effective_traits()] (\eqn{q_P}, \eqn{q_G}, \eqn{q_{PG}}).
 #' @param Mk,Ml Trait covariance matrices from [expected_trait_cov()].
 #' @export
 q_eff <- function(Mk, Ml = Mk) sum(diag(Mk)) * sum(diag(Ml)) / sum(Mk * Ml)

@@ -10,5 +10,6 @@ q_eff(Mk, Ml = Mk)
 \item{Mk, Ml}{Trait covariance matrices from [expected_trait_cov()].}
 }
 \description{
-Effective number of traits for a SNP pair
+A single-number summary that is exact for null standard errors only; for
+power use [effective_traits()] (\eqn{q_P}, \eqn{q_G}, \eqn{q_{PG}}).
 }
