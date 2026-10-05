@@ -13,6 +13,7 @@ Monte Carlo and exact checks for the identities in the theory supplement
 | `checks/check_distal_gls.py` | S4.6 | collapsed GLS for distal SNP sets: identity, projection bias, prescreen calibration |
 | `checks/check_tight_ld.py` | S3.11, S4.7 | ridge vs tag-set LRCQ under tight LD; tag-projected LRCP correlations |
 | `checks/check_category.py` | S7 | category enrichment, annotation regression, phenotype-category contrasts |
+| `checks/check_gene_level.py` | S8 | gene-level burden covariance; conditional Gaussian test and max-T FWER under trait dependence |
 | `checks/check_moments.py` | S2.4, S3.4, S5 | Isserlis fourth moments, point-normal excess kurtosis, one-mediator second/fourth moments |
 
 Run: `cd theory/checks && python3 <script>.py`.
