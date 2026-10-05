@@ -139,3 +139,29 @@ run_lrcp <- function(Z, ld, n, M, gcov, intercept = NULL, lrcq_fit,
   }
   res
 }
+
+#' Choose genetically diverse traits
+#'
+#' Greedy pruning on genetic correlation: traits are taken in order of
+#' \code{priority} (e.g. h² z-score) and kept only if their absolute genetic
+#' correlation with every trait already kept is at most \code{max_rg}. Power
+#' of LRCQ and LRCP grows with the number of genetically independent trait
+#' dimensions, not with the number of traits (theory supplement S9).
+#'
+#' @param rg q-by-q genetic correlation matrix.
+#' @param priority Length-q score; higher is taken first.
+#' @param max_rg Largest absolute genetic correlation allowed between kept
+#'   traits.
+#' @param max_traits Optional cap on the number of traits kept.
+#' @return Indices of kept traits, in the order chosen.
+#' @export
+prune_traits <- function(rg, priority = rep(1, nrow(rg)), max_rg = 0.5,
+                         max_traits = Inf) {
+  ord <- order(-priority)
+  keep <- integer(0)
+  for (i in ord) {
+    if (length(keep) >= max_traits) break
+    if (!length(keep) || all(abs(rg[i, keep]) <= max_rg | is.na(rg[i, keep]))) keep <- c(keep, i)
+  }
+  keep
+}

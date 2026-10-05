@@ -111,3 +111,9 @@ test_that("gcov_from_rg builds a PSD covariance and diagonal gcov warns", {
   expect_equal(diag(G), c(0.2, 0.3, 0.4))
   expect_warning(lrcpq:::check_gcov(diag(3), 3), "diagonal")
 })
+
+test_that("prune_traits keeps a genetically diverse set", {
+  rg <- matrix(0.1, 4, 4); diag(rg) <- 1; rg[1, 2] <- rg[2, 1] <- 0.9
+  expect_equal(prune_traits(rg, c(1, 2, 0.5, 0.2)), c(2, 3, 4))
+  expect_equal(prune_traits(rg, c(1, 2, 0.5, 0.2), max_traits = 2), c(2, 3))
+})
