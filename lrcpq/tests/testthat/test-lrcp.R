@@ -74,3 +74,19 @@ test_that("R-projected local variance estimates w of candidates", {
   }
   expect_true(all(abs(colMeans(v) - 10) < 4 * apply(v, 2, sd) / sqrt(40) + 0.5))
 })
+
+test_that("pipelines run end to end and rank true pairs first", {
+  set.seed(61)
+  blocks <- make_ld_ar1(rep(50, 6), 0.7); ld <- ld_from_blocks(blocks); m <- ld$m
+  w <- numeric(m); cand <- c(10, 60, 110, 160, 210, 260); w[cand] <- 40
+  w[sample(setdiff(1:m, cand), 30)] <- 2; w <- w * m / sum(w)
+  Rb <- as.matrix(make_Rb(m, "pairs", pairs = rbind(c(10, 160), c(60, 210)), pair_rho = c(0.7, -0.6)))
+  q <- 50; gc <- make_gcov(q, h2 = rep(0.3, q), type = "cluster", rg = 0.4, n_clusters = 5)
+  C <- make_intercept(q, 1, 0.2); n <- rep(4e5, q); M <- 1e5
+  sim <- simulate_lrcpq(blocks, n = n, w = w, Rb = Rb, gcov = gc$gcov, intercept = C, M = M)
+  fq <- run_lrcq(sim$Z, ld, n, M, gc$gcov, C)
+  expect_true(all(cand %in% which(fq$w$w_raw > 5)))
+  fp <- run_lrcp(sim$Z, ld, n, M, gc$gcov, C, fq, threshold = 5, min_distance = 0)
+  top <- fp[order(fp$p), ][1:2, ]
+  expect_setequal(paste(top$snp1, top$snp2), c("10 160", "60 210"))
+})
