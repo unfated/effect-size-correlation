@@ -32,6 +32,7 @@ one_rep <- function(q, rho, traits, ld_r, M, do_mle = FALSE) {
                gcov = gc$gcov, M = M, intercept = C, S1 = S1, S2 = S2)
   fg <- do.call(lrcp_distal, c(args, method = "gls"))
   fo <- do.call(lrcp_distal, c(args, method = "ols"))
+  fp <- do.call(lrcp_distal, c(args, method = "gls", se_type = "plugin"))  # SE for CIs at rho != 0
   ti <- match(pr[, 1], S1); tj <- match(pr[, 2] - 200, S2)
   truth <- c(rho, rho, -rho)
   isnull <- matrix(TRUE, length(S1), length(S2)); isnull[cbind(ti, tj)] <- FALSE
@@ -40,7 +41,7 @@ one_rep <- function(q, rho, traits, ld_r, M, do_mle = FALSE) {
   B <- as.matrix(sim$B)
   orc <- sapply(1:3, function(k) cor(B[pr[k, 1], ], B[pr[k, 2], ]))
   res <- data.frame(q = q, rho = rho, traits = traits, ld_r = ld_r, M = M, pair = 1:3, truth = truth,
-                    gls = fg$rho[cbind(ti, tj)], gls_se = fg$se[cbind(ti, tj)],
+                    gls = fg$rho[cbind(ti, tj)], gls_se = fg$se[cbind(ti, tj)], gls_pse = fp$se[cbind(ti, tj)],
                     ols = fo$rho[cbind(ti, tj)], ols_se = fo$se[cbind(ti, tj)],
                     naive = naive[cbind(ti, tj)], oracle = orc)
   if (do_mle) {
@@ -80,6 +81,7 @@ run_cell <- function(g) {
   list(res = do.call(rbind, R), nulls = do.call(rbind, N))
 }
 ncores <- as.integer(Sys.getenv("NCORES", "3"))
-out_list <- parallel::mclapply(seq_len(nrow(grid)), run_cell, mc.cores = ncores, mc.preschedule = FALSE)
+idx <- if (nzchar(Sys.getenv("CELLS"))) as.integer(strsplit(Sys.getenv("CELLS"), ",")[[1]]) else seq_len(nrow(grid))
+out_list <- parallel::mclapply(idx, run_cell, mc.cores = ncores, mc.preschedule = FALSE)
 saveRDS(list(res = do.call(rbind, lapply(out_list, `[[`, "res")),
-             nulls = do.call(rbind, lapply(out_list, `[[`, "nulls")), grid = grid), out)
+             nulls = do.call(rbind, lapply(out_list, `[[`, "nulls")), grid = grid, cells = idx), out)
