@@ -6,8 +6,9 @@
 # genetic-effect correlation), Z = sqrt(n) R B + noise with intercept matrix C
 # (lrcpq::simulate_lrcpq). Per-SNP signal uses a genome-scale M.
 # Estimators per window:
-#   tag   : tag-set (clump-level) LRCQ, tags greedy-pruned at r^2 < 0.5,
-#           responses from all SNPs (primary; theory S3.11)
+#   tag   : tag-set (clump-level) LRCQ via lrcpq::lrcq_window(tags = ...),
+#           tags greedy-pruned at r^2 < 0.5, responses from all SNPs, model SEs
+#           (primary; theory S3.11); WLS, OLS and equal-weight versions
 #   ridge : per-SNP LRCQ with ridge 1e-3 (lrcpq::lrcq_window)
 #   + OLS / equal-weight versions of the tag estimator, rectifications A/B/C
 #   + comparators: mean chi2, LD-normalised mean chi2, n significant traits,
@@ -97,7 +98,7 @@ one_rep <- function(rep) {
     w_pw <- w_eq <- w
   }
   Cu <- C; diag(Cu) <- sc$int_used
-  out <- list(); annot_out <- list()
+  out <- list(); annot_out <- list(); clump_cat <- list()
   off <- c(0, cumsum(sizes))
   for (b in seq_along(Rl)) {
     ix <- (off[b] + 1):off[b + 1]
@@ -111,22 +112,24 @@ one_rep <- function(rep) {
     t_true_eq <- as.vector(proj %*% w_eq[ix])
     clump_total <- as.vector(tapply(w_pw[ix], factor(tg$assign, levels = P), sum))
     Zb <- Z[ix, , drop = FALSE]
-    fit_tag <- lrcq_clump(Zb, Re, P, n, gc$h2, sc$M, diag(Cu), "wls", N_ref = sc$N_ref)
-    fit_tag_ols <- lrcq_clump(Zb, Re, P, n, gc$h2, sc$M, diag(Cu), "ols", N_ref = sc$N_ref)
-    # equal-weight tag estimator: average of per-trait OLS solutions
+    ft <- lapply(c(wls = "wls", ols = "ols", equal = "equal"), function(meth)
+      lrcq_window(Zb, Re, n, gc$gcov, sc$M, Cu, method = meth, N_ref = sc$N_ref,
+                  tags = P, se = "model"))
     yb <- sweep(Zb^2, 2, diag(Cu))
-    De <- ld_r2(Re, sc$N_ref)[, P, drop = FALSE]
-    G <- solve(crossprod(De), t(De))
-    fit_tag_eq <- rowMeans(G %*% sweep(yb, 2, n * gc$h2 / sc$M, "/"))
     fr <- lrcq_window(Zb, Re, n, gc$gcov, sc$M, Cu, method = "wls", ridge = sc$ridge,
                       N_ref = sc$N_ref, se = "model")
     cmp <- comparators(Zb, Cu, rowSums(Re^2))
     # per-tag rows
     out[[b]] <- data.frame(block = b, snp = ix[P], w_true = w_pw[ix][P], t_true = t_true,
-      t_true_eq = t_true_eq, clump_total = clump_total, tag = fit_tag, tag_ols = fit_tag_ols,
-      tag_eq = fit_tag_eq, ridge = fr$w[P], ridge_se = fr$se[P],
+      t_true_eq = t_true_eq, clump_total = clump_total, clump_n = tabulate(match(tg$assign, P), length(P)),
+      tag = ft$wls$w, tag_se = ft$wls$se, tag_ols = ft$ols$w, tag_ols_se = ft$ols$se,
+      tag_eq = ft$equal$w, tag_eq_se = ft$equal$se, ridge = fr$w[P], ridge_se = fr$se[P],
       ridge_clump = as.vector(tapply(fr$w, factor(tg$assign, levels = P), sum)),
       cmp[P, ], annot = annot[ix][P])
+    fk <- sapply(1:4, function(c) tapply(annot[ix] == c, factor(tg$assign, levels = P), mean))
+    gk <- tabulate(match(tg$assign, P), length(P))
+    clump_cat[[b]] <- list(num = colSums(fk * ft$wls$w), den = colSums(fk * gk),
+                           num_true = colSums(fk * t_true))
     annot_out[[b]] <- data.frame(block = b, annot = annot[ix], w = w_pw[ix], ridge = fr$w,
                                  yb = I(yb), De_full = I(ld_r2(Re, sc$N_ref)))
   }
@@ -140,8 +143,11 @@ one_rep <- function(rep) {
   ybar <- as.vector(Yall %*% s) / sum(s^2)
   tau <- as.vector(solve(crossprod(Lc), crossprod(Lc, ybar)))
   an <- do.call(rbind, lapply(annot_out, function(a) a[, c("annot", "w", "ridge")]))
+  ccn <- Reduce(`+`, lapply(clump_cat, `[[`, "num")); ccd <- Reduce(`+`, lapply(clump_cat, `[[`, "den"))
+  cct <- Reduce(`+`, lapply(clump_cat, `[[`, "num_true"))
   annot_tab <- data.frame(annot = 1:4, true = tapply(an$w, an$annot, mean),
-                          lrcq_ridge = tapply(an$ridge, an$annot, mean), sldsc_pooled = tau)
+                          lrcq_ridge = tapply(an$ridge, an$annot, mean), sldsc_pooled = tau,
+                          lrcq_clump = ccn / ccd, clump_target = cct / ccd)
   list(tab = tab, annot = annot_tab, scen = scen_name, rep = rep, m = m)
 }
 
