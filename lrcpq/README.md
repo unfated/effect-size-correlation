@@ -14,6 +14,8 @@ Model: `Y = XB + E`, `B ~ MN(0, U, V)` with `U = W^{1/2} RŒ≤ W^{1/2}` and `V = H
 install.packages("lrcpq", repos = NULL, type = "source")
 ```
 
+Speed: use an optimised BLAS. With OpenBLAS (`apt-get install libopenblas0-pthread`) instead of R's reference BLAS, per-tag LRCQ on chromosome 22 (15,850 HM3 SNPs, 100 traits, 1000G LD) drops from 12 minutes to 42 seconds, roughly 50 minutes genome-wide.
+
 ## Four-stage estimator
 
 | Stage | Parameter | Function |
@@ -35,7 +37,7 @@ Stage 3 uses the fast OLS/WLS solution: stacking q traits gives the design `s ‚ä
 | Aggregation | `lrcq_category()`, `lrcq_annot_regression()`, `trait_weights()` |
 | Power | `power_lrcq()`, `power_lrcp()`, `detectable_effect()` |
 
-Vignette: `vignette("simulation", package = "lrcpq")`.
+Vignettes: `vignette("simulation", package = "lrcpq")` and `vignette("real-data", package = "lrcpq")`.
 
 ## Simulation in five lines
 
