@@ -15,8 +15,7 @@ for p in parts:
     txt = (root / "draft" / p).read_text()
     txt = re.sub(r"^\*Draft[^\n]*\*\n\n?", "", txt, flags=re.M)   # drop per-section draft notes
     if p != "01-abstract.md":
-        txt = re.sub(r"^# ", "## ", txt, flags=re.M)
-        txt = re.sub(r"^## ## ", "## ", txt, flags=re.M)
+        txt = re.sub(r"^(#+) ", r"#\1 ", txt, flags=re.M)   # demote every heading one level
     body.append(txt.strip())
 text = "\n\n".join(body)
 

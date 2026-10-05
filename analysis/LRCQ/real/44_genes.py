@@ -3,8 +3,10 @@
 
 Per core SNP k, e_k = W_t / g_t for its tag t (clump-mean enrichment). Gene enrichment
 E_g = mean of e_k over HapMap3 SNPs within [start - 10 kb, end + 10 kb] (GRCh37,
-gnomAD v2.1.1 gene table, protein-coding genes). SEs: trait-cluster jackknife
-(replicates from 30_stage3_lrcq.R, each renormalised to mean 1).
+gnomAD v2.1.1 gene table, protein-coding genes). E_g = sum_t (n_tg / n_g) W_t / g_t,
+so its SE is built from the tag model SEs (Theorem 3.10), ignoring covariance between
+tag estimates (tags are pruned at r2 < 0.5). The trait-cluster jackknife SE is written
+as E_se_jk, a diagnostic only (invalid under sample overlap; theory S3.6).
 Also: mean E_g by gnomAD LOEUF decile, and the genes of the user's original
 observation table (observed data hints/table 100+100 genes.xlsx) plus TP53/MDM2,
 against their counts of significant GWAS.
@@ -29,13 +31,15 @@ K = jk.shape[1]
 W = np.c_[t["w_raw"].to_numpy(), jk]
 W = W * (n_core / W.sum(0))                      # column 0 = full data, 1..K = replicates
 E_tag = W / t["clump_n"].to_numpy()[:, None]
+V_tag = (t["se"].to_numpy() * n_core / t["w_raw"].sum() / t["clump_n"].to_numpy()) ** 2
 tag_row = pd.Series(np.arange(len(t)), index=t["ID"])
 snp_tag = tag_row.reindex(s2t["tag_ID"]).to_numpy()
 ok = ~np.isnan(snp_tag)
 ids = s2t["ID"].to_numpy()[ok]
 e_snp = E_tag[snp_tag[ok].astype(int)]          # n_snp x (K+1)
+t_snp = snp_tag[ok].astype(int)
 chrom = np.array([int(x.split(":")[0]) for x in ids]); bp = np.array([int(x.split(":")[1]) for x in ids])
-o = np.lexsort((bp, chrom)); chrom, bp, e_snp = chrom[o], bp[o], e_snp[o]
+o = np.lexsort((bp, chrom)); chrom, bp, e_snp, t_snp = chrom[o], bp[o], e_snp[o], t_snp[o]
 cs = np.vstack([np.zeros((1, e_snp.shape[1])), np.cumsum(e_snp, 0)])
 
 g = pd.read_csv(gf, sep="\t", compression="gzip", low_memory=False)
@@ -57,12 +61,15 @@ for c, gc in g.groupby("chr"):
         if n[i] == 0:
             continue
         rep = means[i, 1:]
-        se = np.sqrt((K - 1) / K * ((rep - rep.mean()) ** 2).sum())
+        se_jk = np.sqrt((K - 1) / K * ((rep - rep.mean()) ** 2).sum())
+        tt, cnt = np.unique(t_snp[lo[i]:hi[i]], return_counts=True)
+        se = np.sqrt(((cnt / n[i]) ** 2 * V_tag[tt]).sum())
         rows.append(dict(gene=r["gene"], chr=c, start=r["start_position"], end=r["end_position"], n_snps=int(n[i]),
-                         E=means[i, 0], E_se=se, loeuf=r["oe_lof_upper"], pLI=r.get("pLI", np.nan)))
+                         n_tags=len(tt), E=means[i, 0], E_se=se, E_se_jk=se_jk, loeuf=r["oe_lof_upper"],
+                         pLI=r.get("pLI", np.nan)))
 gr = pd.DataFrame(rows)
 gr["z"] = (gr["E"] - 1) / gr["E_se"]
-gr["p_gt1"] = stats.t.sf(gr["z"], K - 1)
+gr["p_gt1"] = stats.norm.sf(gr["z"])
 gr = gr.sort_values("p_gt1")
 gr.to_csv(outp + ".genes.tsv.gz", sep="\t", index=False, compression="gzip")
 
