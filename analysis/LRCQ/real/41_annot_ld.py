@@ -29,9 +29,16 @@ m_all = len(uni)
 M = float(open("/home/user/data/ref/UKBB.EUR.l2.M_5_50").read().split()[0])
 
 # ---- annotations aligned to the universe
+ukeys = set(uni["CHR"].astype(str) + ":" + uni["BP"].astype(str))
 parts = []
 for f in sorted(glob.glob(os.path.join(annot_dir, "*.annot.gz"))):
-    parts.append(pd.read_csv(f, sep="\t"))
+    for ch in pd.read_csv(f, sep="\t", chunksize=200000):
+        k = ch["CHR"].astype(str) + ":" + ch["BP"].astype(str)
+        ch = ch[k.isin(ukeys).to_numpy()]
+        if len(ch):
+            num = ch.columns.difference(["CHR", "BP", "SNP", "CM"])
+            ch[num] = ch[num].astype(np.float32)
+            parts.append(ch)
 an = pd.concat(parts, ignore_index=True)
 cols = [c for c in an.columns if c not in ("CHR", "BP", "SNP", "CM")]
 base = {}
@@ -42,8 +49,9 @@ A_df = pd.DataFrame({b: an[cs].sum(axis=1) for b, cs in base.items()})
 A_df.insert(0, "base", 1.0)
 A_df["key"] = an["CHR"].astype(str) + ":" + an["BP"].astype(str)
 A_df = A_df.drop_duplicates("key").set_index("key")
+del an
 ukey = uni["CHR"].astype(str) + ":" + uni["BP"].astype(str)
-A = A_df.reindex(ukey).drop(columns=[]).to_numpy(np.float64)
+A = A_df.reindex(ukey).to_numpy(np.float32)
 has_annot = ~np.isnan(A[:, 0])
 A = np.nan_to_num(A)
 anames = list(A_df.columns)

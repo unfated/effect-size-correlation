@@ -38,11 +38,12 @@ if os.path.exists(jkf):
     K = jk.size // len(t)
     jk = jk.reshape(len(t), K)
     jk = jk * (n_core / jk.sum(0))
-    t["W_se_model"] = t["W_se"]
-    t["W_se"] = np.sqrt((K - 1) / K * ((jk - jk.mean(1, keepdims=True)) ** 2).sum(1))
+    # diagnostic only: in simulation the trait-cluster jackknife was miscalibrated
+    # under sample overlap (sim/check_jackknife.R), so tests use the model SE
+    t["W_se_jk"] = np.sqrt((K - 1) / K * ((jk - jk.mean(1, keepdims=True)) ** 2).sum(1))
 t["enr"] = t["W"] / t["clump_n"]
 t["enr_se"] = t["W_se"] / t["clump_n"]
-dfree = (K - 1) if K else np.inf
+dfree = np.inf
 
 
 def bh(p):
@@ -58,7 +59,7 @@ t["z_gt0"] = t["W"] / t["W_se"]
 t["p_gt0"] = stats.t.sf(t["z_gt0"], dfree)
 t["q_gt0"] = bh(t["p_gt0"])
 
-summ = dict(label=lab, se_type="trait-cluster jackknife, K=%s" % K if K else "model (Theorem 3.10)", n_core_snps=int(n_core), n_tags=int(len(t)), scale=float(scale),
+summ = dict(label=lab, se_type="model (Theorem 3.10)", n_core_snps=int(n_core), n_tags=int(len(t)), scale=float(scale),
             median_clump_n=float(t["clump_n"].median()),
             median_se_enr_singleton=float(t.loc[t["clump_n"] == 1, "enr_se"].median()),
             median_se_W=float(t["W_se"].median()),
@@ -103,7 +104,7 @@ if annot:
                             z_vs1=(E - 1) / se, p_vs1=2 * stats.norm.sf(np.abs((E - 1) / se))))
     res.to_csv(os.path.join(od, lab + ".annot_clump.tsv"), sep="\t", index=False)
 
-out_cols = ["window", "CHR", "BP", "ID", "RSID", "clump_n", "W", "W_se"] + (["W_se_model"] if K else []) + [ "enr", "enr_se", "z_gt1", "p_gt1",
+out_cols = ["window", "CHR", "BP", "ID", "RSID", "clump_n", "W", "W_se"] + (["W_se_jk"] if K else []) + [ "enr", "enr_se", "z_gt1", "p_gt1",
             "q_gt1", "z_gt0", "p_gt0", "q_gt0", "l2_window", "n_missing", "mean_chi2", "ldnorm_chi2", "n_sig", "omnibus"]
 t[out_cols].to_csv(os.path.join(od, lab + ".tags.tsv.gz"), sep="\t", index=False, compression="gzip")
 json.dump(summ, open(os.path.join(od, lab + ".summary.json"), "w"), indent=1)

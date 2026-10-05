@@ -14,11 +14,11 @@ indep_only = "--indep-only" in sys.argv
 t = pd.read_csv(lst, sep="\t")
 if indep_only:
     t = t[t.indep]
-t = t[[os.path.exists(os.path.join(zdir, f"{x}.z.gz")) for x in t.trait_id]].reset_index(drop=True)
+t = t[[os.path.exists(os.path.join(zdir, x.replace("/", "_") + ".z.gz")) for x in t.trait_id]].reset_index(drop=True)
 m = sum(1 for _ in open("/home/user/data/ref/snp_universe.txt"))
 Z = np.lib.format.open_memmap(out + ".Z.npy", mode="w+", dtype=np.float32, shape=(m, len(t)))
 for j, tid in enumerate(t.trait_id):
-    v = pd.read_csv(os.path.join(zdir, f"{tid}.z.gz"), header=None, na_values="NA",
+    v = pd.read_csv(os.path.join(zdir, tid.replace("/", "_") + ".z.gz"), header=None, na_values="NA",
                     dtype=np.float32).values[:, 0]
     assert len(v) == m, tid
     Z[:, j] = v

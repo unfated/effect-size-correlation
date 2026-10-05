@@ -124,13 +124,17 @@ for (i in seq_len(nrow(win))) {
   clump_n <- tabulate(match(tags$assign[core], tags$keep), length(tags$keep))
   cmp <- comparators(Z, C, rowSums(wd$R^2))
   P <- tags$keep[ct]
+  if (!length(P)) {
+    cat(sprintf("%s: %d SNPs, no core tags, skipped\n", win$name[i], nrow(Z)))
+    next
+  }
   res <- data.frame(window = win$name[i], CHR = wd$snps$CHR[P], BP = wd$snps$BP[P],
                     ID = wd$snps$ID[P], RSID = wd$snps$RSID[P],
                     w_raw = f$w[ct], se = f$se[ct],
                     se_jk = if (is.null(jk)) NA else sqrt((K - 1) / K * rowSums((jk[ct, , drop = FALSE] - rowMeans(jk[ct, , drop = FALSE]))^2)),
                     clump_n = clump_n[ct],
                     l2_window = rowSums(wd$R^2)[P], n_missing = rowSums(miss)[P],
-                    cmp[P, ])
+                    cmp[P, , drop = FALSE])
   write.table(res, out, sep = "\t", quote = FALSE, row.names = FALSE,
               append = file.exists(out), col.names = !file.exists(out))
   if (!is.null(jk)) {
