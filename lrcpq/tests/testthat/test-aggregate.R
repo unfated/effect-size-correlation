@@ -93,3 +93,27 @@ test_that("class null is calibrated for non-separable loci; model null is not", 
   expect_lt(mean(abs(r[, 2]) > 1.96), 0.10)
   expect_equal(profile_classes(rbind(c(1, 2, 3), c(-1, -2, -3.1), c(1, -2, 1))), c(1, 1, 2))
 })
+
+test_that("burden null: local-moment bootstrap is valid where diagonal-only projection is not", {
+  set.seed(56)
+  blocks <- make_ld_ar1(c(9, 9), 0.5); m <- 18
+  cA <- c(2, 5, 8); cB <- 9 + cA
+  w <- numeric(m); w[c(cA, cB)] <- 30
+  prs <- rbind(t(combn(cA, 2)), t(combn(cB, 2)))
+  Rb <- as.matrix(make_Rb(m, "pairs", pairs = prs, pair_rho = rep(0.6, nrow(prs))))
+  q <- 60; gc <- make_gcov(q, h2 = rep(0.3, q), type = "cluster", rg = 0.6, n_clusters = 4)
+  C <- make_intercept(q, 1, 0.3); n <- rep(3e5, q); M <- 1e5
+  V <- matrix(1, 9, 1); R1 <- blocks[[1]]
+  r <- t(replicate(200, {
+    Z <- simulate_lrcpq(blocks, n = n, w = w, Rb = Rb, gcov = gc$gcov, intercept = C, M = M)$Z
+    ZA <- Z[1:9, ]; ZB <- Z[10:18, ]
+    vA <- pmax(local_variance(ZA, R1, 1:9, n, gc$gcov, M, C), 0)
+    d <- lrcp_gene(ZA, ZB, R1, R1, V, V, n, gc$gcov, M, C, GA = R1 %*% (vA * R1),
+                   n_boot = 0, n_sim = 0)
+    b <- lrcp_gene(ZA, ZB, R1, R1, V, V, n, gc$gcov, M, C, n_boot = 100)
+    c(d$p, b$p, b$p_maxT)
+  }))
+  expect_gt(mean(r[, 1] < 0.05), 0.09)
+  expect_lt(mean(r[, 2] < 0.05), 0.09)
+  expect_gt(mean(r[, 2] < 0.05), 0.005)
+})

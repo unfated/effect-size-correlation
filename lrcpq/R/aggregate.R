@@ -311,16 +311,63 @@ lrcq_annot_regression <- function(Z, ld, annot, n, gcov, M, intercept = NULL,
 
 `%||%` <- function(a, b) if (is.null(a)) b else a
 
+#' Local second moment of a window's Z-scores
+#'
+#' \eqn{\hat G = \|s\|^{-2}\sum_a s_a (z_a z_a' - c_{aa} R)}, an unbiased
+#' estimate of \eqn{R\tilde\Sigma R} that makes no assumption about local
+#' genetic-effect correlation (theory supplement S8.2a), projected to the PSD
+#' cone. When few traits carry signal (\eqn{q_{eff}(T) <} \code{shrink_qeff})
+#' it is shrunk toward \eqn{R\,Diag(\hat w_+)R} with weight
+#' \eqn{\lambda = 1 - q_{eff}/}\code{shrink_qeff}.
+#'
+#' @param Z Window Z-scores (m-by-q).
+#' @param R Window LD.
+#' @param n,gcov,M,intercept As in [lrcq()]; intercepts fixed from stage 2.
+#' @param shrink_qeff Effective trait count below which to shrink.
+#' @return m-by-m PSD matrix.
+#' @export
+local_moment <- function(Z, R, n, gcov, M, intercept, shrink_qeff = 20) {
+  Z <- as.matrix(Z); R <- as.matrix(R)
+  q <- ncol(Z)
+  if (is.null(dim(gcov))) gcov <- diag(gcov, q)
+  if (is.null(dim(intercept))) intercept <- diag(intercept, q)
+  s <- n * diag(gcov) / M
+  G <- (Z %*% (s * t(Z)) - sum(s * diag(intercept)) * R) / sum(s^2)
+  e <- eigen((G + t(G)) / 2, symmetric = TRUE)
+  G <- e$vectors %*% (pmax(e$values, 0) * t(e$vectors))
+  Tm <- scale_matrix(n, gcov, M)
+  qe <- sum(diag(Tm))^2 / sum(Tm^2)
+  lam <- max(0, 1 - qe / shrink_qeff)
+  if (lam > 0) {
+    v <- pmax(local_variance(Z, R, seq_len(nrow(Z)), n, gcov, M, intercept), 0)
+    G <- (1 - lam) * G + lam * R %*% (v * R)
+  }
+  G
+}
+
 #' Gene-level LRCP between two distal windows
 #'
 #' Burden covariance \eqn{\hat C_{GH} = \|s\|^{-2}\sum_a s_a (g_G'z_{Aa})
 #' (h_H'z_{Ba})}, \eqn{g_G = R_A[T,T]^{-1} v_G} (theory supplement eq. 8.1),
 #' with the conditional Gaussian null of eq. (8.2): given window B, the
 #' statistic is linear in window A's Z-scores, so its null variance needs
-#' only window A's trait covariance \eqn{\Sigma_x = \tau_R \Gamma + \tau_G T}.
-#' This is the primary per-pair test (S8.5): unlike the GLS null SE it does
-#' not depend on window B's estimated enrichment. Within the window pair, a
-#' max-|T| adjustment controls the family-wise error rate.
+#' only window A's trait covariance \eqn{\Sigma_x = \tau_R \Gamma + \tau_G T},
+#' with \eqn{\tau_G = g'G_A g}. This is the primary per-pair test (S8.5):
+#' unlike the GLS null SE it does not depend on window B's estimated
+#' enrichment.
+#'
+#' @section Window covariance and p-values (S8.2a): \eqn{G_A} defaults to
+#'   the local second moment ([local_moment()]), which allows within-gene
+#'   genetic-effect correlation; a diagonal-only R-projection is
+#'   anti-conservative for burdens of correlated causal SNPs and is not
+#'   used. Because \eqn{\hat G_A} and the numerator share \eqn{Z_A}, the
+#'   plug-in z is conservative, so with \code{n_boot > 0} (default) p-values
+#'   come from a conditional parametric bootstrap: \eqn{Z_A^* \sim N(0,
+#'   \Gamma\otimes R_A + T\otimes \hat G_{A+})} with \eqn{Z_B} fixed,
+#'   recomputing \eqn{\hat C^*} and \eqn{\hat G_A^*} and studentising. One
+#'   set of draws gives every gene pair's p-value and the max-|T| FWER
+#'   p-value. With \code{orientation = "both"} the test is also run as
+#'   \eqn{B|A} and the larger p-value is reported.
 #'
 #' @section Non-separable loci (S8.5): loci acting through a narrow set of
 #'   mediators (e.g. lipid loci through LDL) have a class-specific trait
@@ -330,7 +377,8 @@ lrcq_annot_regression <- function(Z, ld, annot, n, gcov, M, intercept = NULL,
 #'   (and \code{VclassB}) from [class_covariance()] on held-out loci of the
 #'   same profile class ([profile_classes()]) to test against the class null
 #'   \eqn{\Sigma_x = \tau_R\Gamma + \kappa_A \hat V_{class}}, with
-#'   \eqn{\kappa_A} trace-matched to the realised signal of \eqn{x}. When
+#'   \eqn{\kappa_A} trace-matched to the realised signal of \eqn{x}. The class
+#'   null uses the normal reference (it is conservative in simulation). When
 #'   \eqn{q_{eff}(\hat V_{class}) < 5} alignment within the class is not
 #'   testable (a warning is given); report \eqn{\hat\rho} descriptively as
 #'   shared-mediator alignment.
@@ -341,16 +389,23 @@ lrcq_annot_regression <- function(Z, ld, annot, n, gcov, M, intercept = NULL,
 #'   tags); identity gives tag-level results.
 #' @param n,gcov,M,intercept As in [lrcq()]. \code{gcov} must hold genome-wide
 #'   genetic covariances (LDSC rg), never a diagonal matrix.
-#' @param GA,GB Genetic part \eqn{R S_w R} on each window's tags (default from
-#'   [local_variance()] assuming no local correlation, clipped at 0).
+#' @param GA,GB Genetic part \eqn{R\tilde\Sigma R} on each window's tags
+#'   (default [local_moment()]). Supplying them fixes them in the bootstrap
+#'   too (e.g. the truth in a simulation).
 #' @param VclassA,VclassB Optional class trait covariances (q-by-q), one
 #'   matrix for all genes or a list with one per gene.
-#' @param n_sim Gaussian draws for the max-|T| adjustment (0 to skip).
-#' @return List with \code{C} (genes A by genes B), \code{se}, \code{z},
-#'   \code{p} (conditional test), \code{p_maxT} (FWER-adjusted within the
-#'   window pair), the GLS-type null \code{se_gls} and \code{z_gls} (model on
-#'   both sides), the diagnostics \code{R_AB}
-#'   (\eqn{(Sy)'\Sigma_x(Sy)/tr(S\Sigma_x S\Sigma_y)};
+#' @param n_boot Conditional bootstrap draws (0 for the normal reference).
+#' @param orientation \code{"both"} (default) or \code{"A"} (A given B only).
+#' @param n_sim Gaussian draws for the max-|T| adjustment when
+#'   \code{n_boot = 0} (0 to skip).
+#' @param shrink_qeff Passed to [local_moment()].
+#' @return List with \code{C} (genes A by genes B), \code{se}, \code{z} (A
+#'   given B), \code{p} (bootstrap when \code{n_boot > 0}, the larger of the
+#'   two orientations with \code{"both"}), \code{p_maxT} (FWER-adjusted
+#'   within the window pair), \code{p_norm_diagnostic} (normal reference,
+#'   a diagnostic only when the bootstrap ran), the GLS-type null
+#'   \code{se_gls} and \code{z_gls} (model on both sides), the diagnostics
+#'   \code{R_AB} (\eqn{(Sy)'\Sigma_x(Sy)/tr(S\Sigma_x S\Sigma_y)};
 #'   \eqn{z/z_{gls} = R_{AB}^{-1/2}}; about \eqn{1 \pm \sqrt{2/q_{eff}}}
 #'   under the model) and \code{e_B} (realised over model-predicted signal
 #'   energy of side B; \eqn{e_B \ll 1} means B's enrichment is overstated),
@@ -360,7 +415,10 @@ lrcq_annot_regression <- function(Z, ld, annot, n, gcov, M, intercept = NULL,
 #' @export
 lrcp_gene <- function(ZA, ZB, RA, RB, VA = diag(nrow(ZA)), VB = diag(nrow(ZB)),
                       n, gcov, M, intercept = NULL, GA = NULL, GB = NULL,
-                      VclassA = NULL, VclassB = NULL, n_sim = 10000) {
+                      VclassA = NULL, VclassB = NULL, n_boot = 1000,
+                      orientation = c("both", "A"), n_sim = 10000,
+                      shrink_qeff = 20) {
+  orientation <- match.arg(orientation)
   ZA <- as.matrix(ZA); ZB <- as.matrix(ZB)
   q <- ncol(ZA)
   if (is.null(dim(gcov))) gcov <- diag(gcov, q)
@@ -370,87 +428,104 @@ lrcp_gene <- function(ZA, ZB, RA, RB, VA = diag(nrow(ZA)), VB = diag(nrow(ZB)),
   ss <- sum(s^2)
   Tm <- scale_matrix(n, gcov, M)
   RA <- as.matrix(RA); RB <- as.matrix(RB)
-  if (is.null(GA)) {
-    vA <- pmax(local_variance(ZA, RA, seq_len(nrow(ZA)), n, gcov, M, intercept), 0)
-    GA <- RA %*% (vA * RA)
-  }
-  if (is.null(GB)) {
-    vB <- pmax(local_variance(ZB, RB, seq_len(nrow(ZB)), n, gcov, M, intercept), 0)
-    GB <- RB %*% (vB * RB)
-  }
+  VA <- as.matrix(VA); VB <- as.matrix(VB)
+  fixA <- !is.null(GA); fixB <- !is.null(GB)
+  lm_ <- function(Z, R) local_moment(Z, R, n, gcov, M, intercept, shrink_qeff)
+  if (!fixA) GA <- lm_(ZA, RA)
+  if (!fixB) GB <- lm_(ZB, RB)
   as_list <- function(V, k) if (is.null(V)) NULL else if (is.list(V)) V else rep(list(V), k)
-  stat <- function(VA, VB, VcA = NULL, VcB = NULL) {
-    g <- solve(RA, VA); h <- solve(RB, VB)
-    nA <- ncol(g); nB <- ncol(h)
-    X <- crossprod(g, ZA)          # genesA x q
-    Y <- crossprod(h, ZB)          # genesB x q
+  # core: statistic and conditional covariance of vec(C) given window 2
+  stat <- function(Z1, Z2, R1, R2, V1, V2, G1, G2, Vc1 = NULL, Vc2 = NULL, diag_only = FALSE) {
+    g <- solve(R1, V1); h <- solve(R2, V2)
+    n1 <- ncol(g); n2 <- ncol(h)
+    X <- crossprod(g, Z1); Y <- crossprod(h, Z2)
     C <- X %*% (s * t(Y)) / ss
-    sY <- t(Y) * s                 # q x genesB, s_a y_aH
-    MR <- crossprod(g, RA %*% g); MG <- crossprod(g, GA %*% g)
-    tRB <- diag(crossprod(h, RB %*% h)); tGB <- diag(crossprod(h, GB %*% h))
-    # trait covariance of each gene's projected profile, genetic part
+    sY <- t(Y) * s
+    MR <- crossprod(g, R1 %*% g); MG <- crossprod(g, G1 %*% g)
+    tR2 <- diag(crossprod(h, R2 %*% h)); tG2 <- diag(crossprod(h, G2 %*% h))
     gen_x <- function(i) Tm * MG[i, i]
     kap <- NULL
-    if (!is.null(VcA)) {
-      kap <- vapply(seq_len(nA), function(i)
-        max(sum(X[i, ]^2) - MR[i, i] * sum(diag(intercept)), 0) / sum(diag(VcA[[i]])), 0)
-      gen_x <- function(i) kap[i] * VcA[[i]]
+    if (!is.null(Vc1)) {
+      kap <- vapply(seq_len(n1), function(i)
+        max(sum(X[i, ]^2) - MR[i, i] * sum(diag(intercept)), 0) / sum(diag(Vc1[[i]])), 0)
+      gen_x <- function(i) kap[i] * Vc1[[i]]
     }
-    gen_y <- function(j) Tm * tGB[j]
-    if (!is.null(VcB)) {
-      kb <- vapply(seq_len(nB), function(j)
-        max(sum(Y[j, ]^2) - tRB[j] * sum(diag(intercept)), 0) / sum(diag(VcB[[j]])), 0)
-      gen_y <- function(j) kb[j] * VcB[[j]]
+    gen_y <- function(j) Tm * tG2[j]
+    if (!is.null(Vc2)) {
+      kb <- vapply(seq_len(n2), function(j)
+        max(sum(Y[j, ]^2) - tR2[j] * sum(diag(intercept)), 0) / sum(diag(Vc2[[j]])), 0)
+      gen_y <- function(j) kb[j] * Vc2[[j]]
     }
-    # conditional covariance of vec(C) (A fastest), eq. (8.2)
     KG <- crossprod(sY, intercept %*% sY)
-    if (is.null(VcA)) {
+    if (diag_only) {
+      # only the per-pair variances (bootstrap inner loop)
+      KT <- if (is.null(Vc1)) crossprod(sY, Tm %*% sY) else NULL
+      var <- outer(diag(MR), diag(KG)) + outer(diag(MG), diag(KT))
+      return(list(C = C, var = var / ss^2))
+    }
+    if (is.null(Vc1)) {
       KT <- crossprod(sY, Tm %*% sY)
       V <- (kronecker(KG, MR) + kronecker(KT, MG)) / ss^2
     } else {
-      # class null: genes' genetic parts are kappa_i V_i; cross-gene terms use
-      # the LD-implied correlation of the genes with the averaged class covariance
       V <- kronecker(KG, MR)
       dg <- sqrt(pmax(diag(MG), 1e-300))
-      for (i in seq_len(nA)) for (k in seq_len(nA)) {
+      for (i in seq_len(n1)) for (k in seq_len(n1)) {
         Vik <- if (i == k) gen_x(i) else
-          MG[i, k] / (dg[i] * dg[k]) * sqrt(kap[i] * kap[k]) * (VcA[[i]] + VcA[[k]]) / 2
-        Bik <- crossprod(sY, Vik %*% sY)
-        V[i + (seq_len(nB) - 1) * nA, k + (seq_len(nB) - 1) * nA] <-
-          V[i + (seq_len(nB) - 1) * nA, k + (seq_len(nB) - 1) * nA] + Bik
+          MG[i, k] / (dg[i] * dg[k]) * sqrt(kap[i] * kap[k]) * (Vc1[[i]] + Vc1[[k]]) / 2
+        ii <- i + (seq_len(n2) - 1) * n1; kk <- k + (seq_len(n2) - 1) * n1
+        V[ii, kk] <- V[ii, kk] + crossprod(sY, Vik %*% sY)
       }
       V <- V / ss^2
     }
-    # GLS-type null variance and diagnostics per gene pair
-    vg <- RAB <- eB <- matrix(0, nA, nB)
-    for (i in seq_len(nA)) {
+    vg <- RAB <- eB <- matrix(0, n1, n2)
+    for (i in seq_len(n1)) {
       Sx <- MR[i, i] * intercept + gen_x(i)
-      for (j in seq_len(nB)) {
-        Sy <- tRB[j] * intercept + gen_y(j)
+      for (j in seq_len(n2)) {
+        Sy <- tR2[j] * intercept + gen_y(j)
         vg[i, j] <- sum(outer(s, s) * Sx * Sy) / ss^2
         RAB[i, j] <- sum(sY[, j] * (Sx %*% sY[, j])) / ss^2 / vg[i, j]
       }
     }
-    for (j in seq_len(nB))
-      eB[, j] <- (sum(s * Y[j, ]^2) - tRB[j] * sum(s * diag(intercept))) /
-        (tGB[j] * sum(s * diag(Tm)))
-    list(C = C, V = V, vg = vg, RAB = RAB, eB = eB)
+    for (j in seq_len(n2))
+      eB[, j] <- (sum(s * Y[j, ]^2) - tR2[j] * sum(s * diag(intercept))) /
+        (tG2[j] * sum(s * diag(Tm)))
+    list(C = C, V = V, var = matrix(diag(V), n1), vg = vg, RAB = RAB, eB = eB)
   }
-  nA <- ncol(as.matrix(VA)); nB <- ncol(as.matrix(VB))
+  # conditional bootstrap of the studentised statistic for window 1 given window 2
+  boot <- function(Z1, Z2, R1, R2, V1, V2, G1, G2, fix1, z0) {
+    R1h <- psd_factor(R1); G1h <- psd_factor(G1)
+    Ch <- psd_factor(intercept); Th <- psd_factor(Tm)
+    m1 <- nrow(Z1)
+    exceed <- matrix(0, nrow(z0), ncol(z0)); exceed_max <- matrix(0, nrow(z0), ncol(z0))
+    for (b in seq_len(n_boot)) {
+      Zs <- R1h %*% matrix(stats::rnorm(m1 * q), m1) %*% t(Ch) +
+        G1h %*% matrix(stats::rnorm(m1 * q), m1) %*% t(Th)
+      Gs <- if (fix1) G1 else lm_(Zs, R1)
+      st <- stat(Zs, Z2, R1, R2, V1, V2, Gs, G2, diag_only = TRUE)
+      zs <- abs(st$C) / sqrt(pmax(st$var, 1e-300))
+      exceed <- exceed + (zs >= abs(z0))
+      exceed_max <- exceed_max + (max(zs) >= abs(z0))
+    }
+    list(p = (1 + exceed) / (n_boot + 1), p_maxT = (1 + exceed_max) / (n_boot + 1))
+  }
+  nA <- ncol(VA); nB <- ncol(VB)
   VcA <- as_list(VclassA, nA); VcB <- as_list(VclassB, nB)
-  st <- stat(as.matrix(VA), as.matrix(VB), VcA, VcB)
+  st <- stat(ZA, ZB, RA, RB, VA, VB, GA, GB, VcA, VcB)
   se <- matrix(sqrt(pmax(diag(st$V), 0)), nrow(st$C))
   z <- st$C / se
-  p <- 2 * stats::pnorm(-abs(z))
-  se_gls <- sqrt(pmax(st$vg, 0))
-  qe <- NULL
-  if (!is.null(VcA)) {
-    qe <- vapply(VcA, function(V) { e <- pmax(eigen(V, TRUE, TRUE)$values, 0); sum(e)^2 / sum(e^2) }, 0)
-    if (any(qe < 5)) warning("class effective trait count below 5: alignment within the class ",
-                             "is not testable; report rho descriptively (theory S8.5)", call. = FALSE)
-  }
+  p_norm <- 2 * stats::pnorm(-abs(z))
+  p <- p_norm
   p_maxT <- NULL
-  if (n_sim > 0) {
+  if (n_boot > 0 && is.null(VcA)) {
+    bA <- boot(ZA, ZB, RA, RB, VA, VB, GA, GB, fixA, z)
+    p <- bA$p; p_maxT <- bA$p_maxT
+    if (orientation == "both") {
+      sB <- stat(ZB, ZA, RB, RA, VB, VA, GB, GA)
+      zB <- sB$C / sqrt(pmax(sB$var, 1e-300))
+      bB <- boot(ZB, ZA, RB, RA, VB, VA, GB, GA, fixB, zB)
+      p <- pmax(p, t(bB$p)); p_maxT <- pmax(p_maxT, t(bB$p_maxT))
+    }
+  } else if (n_sim > 0) {
     sd <- sqrt(pmax(diag(st$V), 1e-300))
     Cor <- st$V / outer(sd, sd)
     L <- psd_factor(Cor)
@@ -458,14 +533,21 @@ lrcp_gene <- function(ZA, ZB, RA, RB, VA = diag(nrow(ZA)), VB = diag(nrow(ZB)),
     mx <- apply(abs(sims), 2, max)
     p_maxT <- matrix(vapply(abs(as.vector(z)), function(t) mean(mx >= t), 0), nrow(st$C))
   }
-  # orientation-free Q on tag level (model null)
-  tl <- stat(diag(nrow(ZA)), diag(nrow(ZB)))
+  se_gls <- sqrt(pmax(st$vg, 0))
+  qe <- NULL
+  if (!is.null(VcA)) {
+    qe <- vapply(VcA, function(V) { e <- pmax(eigen(V, TRUE, TRUE)$values, 0); sum(e)^2 / sum(e^2) }, 0)
+    if (any(qe < 5)) warning("class effective trait count below 5: alignment within the class ",
+                             "is not testable; report rho descriptively (theory S8.5)", call. = FALSE)
+  }
+  # orientation-free Q on tag level (model null with the plug-in G_A)
+  tl <- stat(ZA, ZB, RA, RB, diag(nrow(ZA)), diag(nrow(ZB)), GA, GB)
   Q <- sum(tl$C^2)
   ev <- eigen(tl$V, symmetric = TRUE, only.values = TRUE)$values
   ev <- ev[ev > 0]
   # Liu-Satterthwaite: Q ~ a chi2_d, a = sum ev^2 / sum ev, d = (sum ev)^2 / sum ev^2
   a <- sum(ev^2) / sum(ev); d <- sum(ev)^2 / sum(ev^2)
-  list(C = st$C, se = se, z = z, p = p, p_maxT = p_maxT,
+  list(C = st$C, se = se, z = z, p = p, p_maxT = p_maxT, p_norm_diagnostic = p_norm,
        se_gls = se_gls, z_gls = st$C / se_gls, R_AB = st$RAB, e_B = st$eB,
        q_eff_class = qe, Q = Q, p_Q = stats::pchisq(Q / a, d, lower.tail = FALSE))
 }

@@ -104,14 +104,19 @@ gcov_from_rg <- function(h2, rg) {
 #' @param class_null Test against locus-class nulls (S8.5).
 #' @param min_abs_cor,min_class_loci Class definition: see
 #'   [profile_classes()]; minimum held-out loci per class.
+#' @param n_boot Conditional bootstrap draws for the conditional test
+#'   ([lrcp_gene()], S8.2a; 0 for the normal reference). Ignored with the
+#'   class null, which uses the normal reference.
 #' @param mle Also run [lrcp_mle()] per window pair.
-#' @return Data frame with one row per tag pair.
+#' @return Data frame with one row per tag pair; \code{p} is the bootstrap
+#'   p-value (larger of both orientations) for the conditional test.
 #' @export
 run_lrcp <- function(Z, ld, n, M, gcov, intercept = NULL, lrcq_fit,
                      threshold = 10, z_min = -Inf, min_distance = 5e6,
                      test = c("conditional", "gls"), method = "gls",
                      denominators = "R", class_null = FALSE,
-                     min_abs_cor = 0.5, min_class_loci = 5, mle = FALSE) {
+                     min_abs_cor = 0.5, min_class_loci = 5, n_boot = 1000,
+                     mle = FALSE) {
   test <- match.arg(test)
   q <- ncol(Z)
   check_gcov(gcov, q)
@@ -160,11 +165,11 @@ run_lrcp <- function(Z, ld, n, M, gcov, intercept = NULL, lrcq_fit,
       }
       f <- suppressWarnings(lrcp_gene(Z[A, , drop = FALSE], Z[B, , drop = FALSE], pa$R, pb$R,
                                       n = n, gcov = gcov, M = M, intercept = intercept,
-                                      GA = pa$R %*% (pa$v * pa$R), GB = pb$R %*% (pb$v * pb$R),
-                                      VclassA = VA, VclassB = VB, n_sim = 0))
+                                      VclassA = VA, VclassB = VB, n_boot = n_boot, n_sim = 0))
       den <- sqrt(outer(pa$v, pb$v))
       res$rho <- as.vector(ifelse(den > 0, f$C / den, NA_real_))
       res$C <- as.vector(f$C); res$se <- as.vector(f$se); res$z <- as.vector(f$z)
+      res$p <- as.vector(f$p); res$p_maxT_window_pair <- as.vector(f$p_maxT %||% NA)
       res$z_gls <- as.vector(f$z_gls); res$R_AB <- as.vector(f$R_AB); res$e_B <- as.vector(f$e_B)
       if (class_null) res$testable <- pmin(res$q_eff_class1, res$q_eff_class2) >= 5
     } else {
@@ -197,7 +202,7 @@ run_lrcp <- function(Z, ld, n, M, gcov, intercept = NULL, lrcq_fit,
   if (class_null && any(!res$testable))
     warning(sum(!res$testable), " pairs have a class effective trait count below 5: ",
             "report their rho descriptively, not as tests (theory S8.5)", call. = FALSE)
-  res$p <- 2 * stats::pnorm(-abs(res$z))
+  if (is.null(res$p)) res$p <- 2 * stats::pnorm(-abs(res$z))
   res$q_BH <- stats::p.adjust(res$p, "BH")
   res$q_BY <- stats::p.adjust(res$p, "BY")
   if (!is.null(ld$snp)) {
