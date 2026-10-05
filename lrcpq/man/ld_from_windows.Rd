@@ -4,14 +4,19 @@
 \alias{ld_from_windows}
 \title{LD reference from a directory of overlapping LD windows}
 \usage{
-ld_from_windows(dir, step = 2e+06, id_col = "id")
+ld_from_windows(dir, step = 2e+06, id_col = "ID", N_ref = 337000)
 }
 \arguments{
 \item{dir}{Directory holding the window files.}
 
 \item{step}{Window step in bp (core length).}
 
-\item{id_col}{Name of the SNP id column in the \code{.snps.tsv} files.}
+\item{id_col}{Name of the SNP id column in the \code{.snps.tsv} files
+(\code{chr:pos:ref:alt}; the LRCQ analysis files use \code{ID}, with
+\code{CHR} and \code{BP} columns and R already sign-aligned to ID).}
+
+\item{N_ref}{Reference panel size used for the r-squared bias correction
+(UKB British LD: about 337,000).}
 }
 \value{
 List with \code{ld} (an \code{lrcpq_ld} over the union of SNPs,

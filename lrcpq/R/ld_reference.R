@@ -172,12 +172,16 @@ ld_from_plink <- function(prefixes, snps = NULL, blocks = ld_blocks_eur(),
 #'
 #' @param dir Directory holding the window files.
 #' @param step Window step in bp (core length).
-#' @param id_col Name of the SNP id column in the \code{.snps.tsv} files.
+#' @param id_col Name of the SNP id column in the \code{.snps.tsv} files
+#'   (\code{chr:pos:ref:alt}; the LRCQ analysis files use \code{ID}, with
+#'   \code{CHR} and \code{BP} columns and R already sign-aligned to ID).
+#' @param N_ref Reference panel size used for the r-squared bias correction
+#'   (UKB British LD: about 337,000).
 #' @return List with \code{ld} (an \code{lrcpq_ld} over the union of SNPs,
 #'   whose \code{get()} reads the window covering the request) and
 #'   \code{windows} (pass to \code{lrcq(windows = )}).
 #' @export
-ld_from_windows <- function(dir, step = 2e6, id_col = "id") {
+ld_from_windows <- function(dir, step = 2e6, id_col = "ID", N_ref = 337000) {
   files <- list.files(dir, pattern = "\\.snps\\.tsv$", full.names = TRUE)
   if (!length(files)) stop("no *.snps.tsv files in ", dir)
   nm <- sub("\\.snps\\.tsv$", "", basename(files))
@@ -189,6 +193,8 @@ ld_from_windows <- function(dir, step = 2e6, id_col = "id") {
   meta <- meta[order(meta$chr, meta$start), ]
   tabs <- lapply(meta$file, function(f) {
     t <- utils::read.delim(f, stringsAsFactors = FALSE)
+    if (!"chr" %in% names(t) && "CHR" %in% names(t)) t$chr <- t$CHR
+    if (!"pos" %in% names(t) && "BP" %in% names(t)) t$pos <- t$BP
     if (!id_col %in% names(t)) {
       t[[id_col]] <- paste(t$chr, t$pos, sep = ":")
     }
@@ -230,6 +236,6 @@ ld_from_windows <- function(dir, step = 2e6, id_col = "id") {
     cache$R[j, j, drop = FALSE]
   }
   block <- cumsum(c(TRUE, diff(all_snp$chr) != 0))
-  list(ld = new_ld(get, nrow(all_snp), block, all_snp, N = Inf),
+  list(ld = new_ld(get, nrow(all_snp), block, all_snp, N = N_ref),
        windows = windows)
 }
