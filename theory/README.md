@@ -17,6 +17,8 @@ Monte Carlo and exact checks for the identities in the theory supplement
 | `checks/check_contrast_plugin.py` | S7.4a | plug-in variance of phenotype-category contrasts under sparse w: naive, debiased, bootstrap (`--boot`) |
 | `checks/check_gene_level.py` | S8 | gene-level burden covariance; conditional Gaussian test and max-T FWER under trait dependence |
 | `checks/check_nonseparable.py` | S8.5 | LRCP pair tests under non-separable (mediator-class) effects: separable vs class-null vs own-block variance |
+| `checks/check_burden_null.py` | S8.2a | window covariance in the gene-burden null: diagonal vs local moment vs conditional bootstrap |
+| `checks/check_jackknife_overlap.py` | S3.6 | trait-cluster jackknife misses between-cluster covariance under sample overlap |
 | `checks/check_moments.py` | S2.4, S3.4, S5 | Isserlis fourth moments, point-normal excess kurtosis, one-mediator second/fourth moments |
 
 | `power/power_tables.py` | S9 | analytic power tables (CSV): per-clump and category LRCQ, pair LRCP, q_eff under overlap |
