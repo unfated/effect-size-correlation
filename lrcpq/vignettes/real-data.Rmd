@@ -120,6 +120,13 @@ Results across the 4,644 tag pairs:
 | diagonal (wrong) | 3.11 | 2,166 |
 | rg proxy from signal-SNP Z correlation | 1.24 | 0 |
 | rg proxy, traits shuffled in one region (null) | 0.91 | 0 |
+| genome-wide LDSC rg and intercepts (444 Pan-UKB traits), conditional test | 1.06 | 0 |
+| same, traits shuffled in one region (null) | 0.90 | 0 |
+
+The last two rows use the genome-wide stage 1-2 matrices. Take the diagonal
+and off-diagonal intercepts from the same fit: univariate intercepts on the
+diagonal with joint-fit cross-trait intercepts left this matrix indefinite,
+and the pipelines now warn about it.
 
 With few effective trait dimensions the R-projected variances in the
 denominators are noisy, so |ρ̂| > 1 is common. Report ρ̂ together with its

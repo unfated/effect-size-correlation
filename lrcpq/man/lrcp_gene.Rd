@@ -57,7 +57,11 @@ List with \code{C} (genes A by genes B), \code{se}, \code{z} (A
   given B), \code{p} (bootstrap when \code{n_boot > 0}, the larger of the
   two orientations with \code{"both"}), \code{p_maxT} (FWER-adjusted
   within the window pair), \code{p_norm_diagnostic} (normal reference,
-  a diagnostic only when the bootstrap ran), the GLS-type null
+  a diagnostic only when the bootstrap ran), \code{boot_sd_A} and
+  \code{boot_sd_B} (SD of the bootstrap studentised statistic in each
+  orientation; well below 1 means the plug-in z is strongly
+  self-normalised and the bootstrap, not the normal reference, sets p),
+  the GLS-type null
   \code{se_gls} and \code{z_gls} (model on both sides), the diagnostics
   \code{R_AB} (\eqn{(Sy)'\Sigma_x(Sy)/tr(S\Sigma_x S\Sigma_y)};
   \eqn{z/z_{gls} = R_{AB}^{-1/2}}; about \eqn{1 \pm \sqrt{2/q_{eff}}}

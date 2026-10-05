@@ -403,7 +403,11 @@ local_moment <- function(Z, R, n, gcov, M, intercept, shrink_qeff = 20) {
 #'   given B), \code{p} (bootstrap when \code{n_boot > 0}, the larger of the
 #'   two orientations with \code{"both"}), \code{p_maxT} (FWER-adjusted
 #'   within the window pair), \code{p_norm_diagnostic} (normal reference,
-#'   a diagnostic only when the bootstrap ran), the GLS-type null
+#'   a diagnostic only when the bootstrap ran), \code{boot_sd_A} and
+#'   \code{boot_sd_B} (SD of the bootstrap studentised statistic in each
+#'   orientation; well below 1 means the plug-in z is strongly
+#'   self-normalised and the bootstrap, not the normal reference, sets p),
+#'   the GLS-type null
 #'   \code{se_gls} and \code{z_gls} (model on both sides), the diagnostics
 #'   \code{R_AB} (\eqn{(Sy)'\Sigma_x(Sy)/tr(S\Sigma_x S\Sigma_y)};
 #'   \eqn{z/z_{gls} = R_{AB}^{-1/2}}; about \eqn{1 \pm \sqrt{2/q_{eff}}}
@@ -497,16 +501,20 @@ lrcp_gene <- function(ZA, ZB, RA, RB, VA = diag(nrow(ZA)), VB = diag(nrow(ZB)),
     Ch <- psd_factor(intercept); Th <- psd_factor(Tm)
     m1 <- nrow(Z1)
     exceed <- matrix(0, nrow(z0), ncol(z0)); exceed_max <- matrix(0, nrow(z0), ncol(z0))
+    sz <- sz2 <- matrix(0, nrow(z0), ncol(z0))
     for (b in seq_len(n_boot)) {
       Zs <- R1h %*% matrix(stats::rnorm(m1 * q), m1) %*% t(Ch) +
         G1h %*% matrix(stats::rnorm(m1 * q), m1) %*% t(Th)
       Gs <- if (fix1) G1 else lm_(Zs, R1)
       st <- stat(Zs, Z2, R1, R2, V1, V2, Gs, G2, diag_only = TRUE)
-      zs <- abs(st$C) / sqrt(pmax(st$var, 1e-300))
+      zs <- st$C / sqrt(pmax(st$var, 1e-300))
+      sz <- sz + zs; sz2 <- sz2 + zs^2
+      zs <- abs(zs)
       exceed <- exceed + (zs >= abs(z0))
       exceed_max <- exceed_max + (max(zs) >= abs(z0))
     }
-    list(p = (1 + exceed) / (n_boot + 1), p_maxT = (1 + exceed_max) / (n_boot + 1))
+    list(p = (1 + exceed) / (n_boot + 1), p_maxT = (1 + exceed_max) / (n_boot + 1),
+         sd = sqrt(pmax(sz2 / n_boot - (sz / n_boot)^2, 0)))
   }
   nA <- ncol(VA); nB <- ncol(VB)
   VcA <- as_list(VclassA, nA); VcB <- as_list(VclassB, nB)
@@ -515,15 +523,15 @@ lrcp_gene <- function(ZA, ZB, RA, RB, VA = diag(nrow(ZA)), VB = diag(nrow(ZB)),
   z <- st$C / se
   p_norm <- 2 * stats::pnorm(-abs(z))
   p <- p_norm
-  p_maxT <- NULL
+  p_maxT <- boot_sd_A <- boot_sd_B <- NULL
   if (n_boot > 0 && is.null(VcA)) {
     bA <- boot(ZA, ZB, RA, RB, VA, VB, GA, GB, fixA, z)
-    p <- bA$p; p_maxT <- bA$p_maxT
+    p <- bA$p; p_maxT <- bA$p_maxT; boot_sd_A <- bA$sd
     if (orientation == "both") {
       sB <- stat(ZB, ZA, RB, RA, VB, VA, GB, GA)
       zB <- sB$C / sqrt(pmax(sB$var, 1e-300))
       bB <- boot(ZB, ZA, RB, RA, VB, VA, GB, GA, fixB, zB)
-      p <- pmax(p, t(bB$p)); p_maxT <- pmax(p_maxT, t(bB$p_maxT))
+      p <- pmax(p, t(bB$p)); p_maxT <- pmax(p_maxT, t(bB$p_maxT)); boot_sd_B <- t(bB$sd)
     }
   } else if (n_sim > 0) {
     sd <- sqrt(pmax(diag(st$V), 1e-300))
@@ -548,6 +556,7 @@ lrcp_gene <- function(ZA, ZB, RA, RB, VA = diag(nrow(ZA)), VB = diag(nrow(ZB)),
   # Liu-Satterthwaite: Q ~ a chi2_d, a = sum ev^2 / sum ev, d = (sum ev)^2 / sum ev^2
   a <- sum(ev^2) / sum(ev); d <- sum(ev)^2 / sum(ev^2)
   list(C = st$C, se = se, z = z, p = p, p_maxT = p_maxT, p_norm_diagnostic = p_norm,
+       boot_sd_A = boot_sd_A, boot_sd_B = boot_sd_B,
        se_gls = se_gls, z_gls = st$C / se_gls, R_AB = st$RAB, e_B = st$eB,
        q_eff_class = qe, Q = Q, p_Q = stats::pchisq(Q / a, d, lower.tail = FALSE))
 }

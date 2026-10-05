@@ -30,7 +30,7 @@ run_lrcq <- function(Z, ld, n, M, gcov = NULL, intercept = NULL, ldscore = NULL,
     st <- ldsc_matrix(Z, ldscore, n, M)
     gcov <- st$gcov
     if (is.null(intercept)) intercept <- st$intercept
-  } else check_gcov(gcov, ncol(Z))
+  } else check_gcov(gcov, ncol(Z), intercept)
   if (is.null(intercept)) intercept <- diag(ncol(Z))
   w <- lrcq(Z, ld, n, gcov, M, intercept, method = method, rectify = rectify,
             tag_r2 = tag_r2, windows = windows, ...)
@@ -42,10 +42,19 @@ run_lrcq <- function(Z, ld, n, M, gcov = NULL, intercept = NULL, ldscore = NULL,
 # LRCP and LRCQ standard errors then assume genetically independent traits,
 # which on real phenome-wide data (e.g. many anthropometric traits) makes
 # them far too small.
-check_gcov <- function(gcov, q) {
+check_gcov <- function(gcov, q, intercept = NULL) {
   if (q > 1 && !is.null(dim(gcov)) && all(gcov[upper.tri(gcov)] == 0))
     warning("gcov is diagonal: standard errors assume genetically uncorrelated traits. ",
             "Supply genetic covariances (e.g. ldsc_matrix() or gcov_from_rg()).", call. = FALSE)
+  # a common slip: univariate LDSC intercepts on the diagonal with cross-trait
+  # intercepts from a joint fit off it, which can leave C indefinite
+  if (q > 1 && !is.null(dim(intercept))) {
+    ev <- eigen(intercept, symmetric = TRUE, only.values = TRUE)$values
+    if (min(ev) < -1e-8 * max(ev))
+      warning("intercept matrix is not positive semi-definite (smallest eigenvalue ",
+              signif(min(ev), 3), "); take its diagonal and off-diagonal from the same fit.",
+              call. = FALSE)
+  }
   invisible(NULL)
 }
 
@@ -119,7 +128,7 @@ run_lrcp <- function(Z, ld, n, M, gcov, intercept = NULL, lrcq_fit,
                      mle = FALSE) {
   test <- match.arg(test)
   q <- ncol(Z)
-  check_gcov(gcov, q)
+  check_gcov(gcov, q, intercept)
   if (is.null(dim(gcov))) gcov <- diag(gcov, q)
   if (is.null(intercept)) intercept <- diag(q)
   wt <- lrcq_fit$w
@@ -215,7 +224,7 @@ run_lrcp <- function(Z, ld, n, M, gcov, intercept = NULL, lrcq_fit,
 #' Choose genetically diverse traits
 #'
 #' Greedy pruning on genetic correlation: traits are taken in order of
-#' \code{priority} (e.g. h² z-score) and kept only if their absolute genetic
+#' \code{priority} (e.g. h2 z-score) and kept only if their absolute genetic
 #' correlation with every trait already kept is at most \code{max_rg}. Power
 #' of LRCQ and LRCP grows with the number of genetically independent trait
 #' dimensions, not with the number of traits (theory supplement S9).

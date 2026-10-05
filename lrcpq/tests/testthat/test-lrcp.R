@@ -110,6 +110,9 @@ test_that("gcov_from_rg builds a PSD covariance and diagonal gcov warns", {
   expect_gte(min(eigen(G)$values), -1e-10)
   expect_equal(diag(G), c(0.2, 0.3, 0.4))
   expect_warning(lrcpq:::check_gcov(diag(3), 3), "diagonal")
+  C <- matrix(c(1.2, 1.4, 1.4, 1.2), 2)
+  expect_warning(lrcpq:::check_gcov(matrix(0.1, 2, 2), 2, C), "positive semi-definite")
+  expect_silent(lrcpq:::check_gcov(matrix(0.1, 2, 2), 2, diag(2)))
 })
 
 test_that("prune_traits keeps a genetically diverse set", {

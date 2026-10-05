@@ -21,7 +21,7 @@ Indices of kept traits, in the order chosen.
 }
 \description{
 Greedy pruning on genetic correlation: traits are taken in order of
-\code{priority} (e.g. h² z-score) and kept only if their absolute genetic
+\code{priority} (e.g. h2 z-score) and kept only if their absolute genetic
 correlation with every trait already kept is at most \code{max_rg}. Power
 of LRCQ and LRCP grows with the number of genetically independent trait
 dimensions, not with the number of traits (theory supplement S9).
