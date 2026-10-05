@@ -1,6 +1,7 @@
 # Block-pair LRCP tests for the six targeted blocks: orientation-free Q over all
 # candidate-tag pairs and the named-variant burden covariance, with the conditional
 # Gaussian null of theory supplement S8.2 (exact under any dependence among GWAS).
+if (nzchar(Sys.getenv("RLIB"))) .libPaths(c(Sys.getenv("RLIB"), .libPaths()))
 suppressPackageStartupMessages(library(lrcpq))
 args <- commandArgs(TRUE); IN <- args[1]; OUT <- args[2]; z_min <- as.numeric(args[3])
 s3 <- readRDS(file.path(OUT, "stage3.rds")); w <- s3$fit$w
@@ -36,6 +37,7 @@ for (i in 1:5) for (j in (i + 1):6) {
   out[[length(out) + 1]] <- data.frame(block1 = a, block2 = b, n1 = length(A), n2 = length(B),
     z_target_jk = jx[["C"]] / jx[["se"]], r_naive = cor(Z[match(TARGET[[a]], w$ID), ], Z[match(TARGET[[b]], w$ID), ]),
     C_target = g$C[1, 1], z_target = g$z[1, 1], p_target = g$p[1, 1],
+    z_gls_gene = if (!is.null(g$z_gls)) g$z_gls[1, 1] else NA, R_AB = if (!is.null(g$R_AB)) as.vector(g$R_AB)[1] else NA, e_B = if (!is.null(g$e_B)) as.vector(g$e_B)[1] else NA,
     Q = t$Q, p_Q = t$p_Q, min_p_tag = min(t$p), p_maxT = min(t$p_maxT))
 }
 R <- do.call(rbind, out)
