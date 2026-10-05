@@ -16,5 +16,6 @@ Encoding: UTF-8
 Depends: R (>= 4.1)
 Imports: Matrix, methods, stats, utils
 Suggests: testthat (>= 3.0.0), data.table, knitr, rmarkdown
+VignetteBuilder: knitr
 Config/testthat/edition: 3
 RoxygenNote: 7.3.1

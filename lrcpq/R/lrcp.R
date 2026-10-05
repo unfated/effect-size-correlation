@@ -67,6 +67,14 @@ screen_snps <- function(w, threshold = 0.5, z = NULL, z_min = -Inf) {
 #'   same R-projection as the numerator ([local_variance()]), which keeps
 #'   \eqn{|\hat\rho| \le 1} meaningful when candidates are tags in tight LD
 #'   (theory supplement S4.7).
+#' @param se_type \code{"null"} (default): SEs under \eqn{\rho = 0}, the
+#'   right reference for testing. \code{"plugin"} (GLS and OLS): adds the
+#'   Isserlis term from the cross-region covariance at \eqn{\hat\rho},
+#'   \eqn{tr(KcKc)/\|K\|^4 \cdot \hat\rho^2} for unit-scaled maps, which the
+#'   null SE omits; use it for confidence intervals when \eqn{|\rho|} is large
+#'   (in simulation the null SE understates the SD by about 25\% at
+#'   \eqn{\rho = 0.9} with 30 traits and is accurate for
+#'   \eqn{|\rho| \le 0.4}).
 #' @return List with \code{rho} (p1-by-p2 estimates), \code{se}, \code{z},
 #'   and the screened indices.
 #' @export
@@ -75,8 +83,9 @@ lrcp_distal <- function(Z1, Z2, R1, R2, w1, w2, n, gcov, M, intercept = NULL,
                         trait_pairs = c("same", "all"),
                         method = c("gls", "ols", "wls"), ridge = 0,
                         pair_sum = c("once", "chapter"), N_ref = Inf,
-                        denominators = c("w", "R")) {
+                        denominators = c("w", "R"), se_type = c("null", "plugin")) {
   trait_pairs <- match.arg(trait_pairs)
+  se_type <- match.arg(se_type)
   method <- match.arg(method)
   pair_sum <- match.arg(pair_sum)
   denominators <- match.arg(denominators)
@@ -89,8 +98,25 @@ lrcp_distal <- function(Z1, Z2, R1, R2, w1, w2, n, gcov, M, intercept = NULL,
   if (denominators == "R") {
     w1[S1] <- local_variance(Z1, R1, S1, n, gcov, M, intercept)
     w2[S2] <- local_variance(Z2, R2, S2, n, gcov, M, intercept)
-    if (any(w1[S1] <= 0) || any(w2[S2] <= 0))
-      warning("non-positive R-projected variance for some candidates; rho for them is not defined")
+  }
+  # candidates with a non-positive variance have no defined rho: drop them
+  # (re-projecting the rest), return NA in their rows/columns, and warn
+  ok1 <- w1[S1] > 0; ok2 <- w2[S2] > 0
+  if (!all(ok1) || !all(ok2)) {
+    warning(sum(!ok1) + sum(!ok2), " candidate(s) with non-positive ",
+            if (denominators == "R") "R-projected " else "", "variance dropped; ",
+            "their rho is NA", call. = FALSE)
+    p1 <- length(S1); p2 <- length(S2)
+    out <- list(rho = matrix(NA_real_, p1, p2), se = matrix(NA_real_, p1, p2))
+    if (any(ok1) && any(ok2)) {
+      f <- lrcp_distal(Z1, Z2, R1, R2, w1, w2, n, gcov, M, intercept,
+                       S1 = S1[ok1], S2 = S2[ok2], trait_pairs = trait_pairs,
+                       method = method, ridge = ridge, pair_sum = pair_sum,
+                       N_ref = N_ref, denominators = denominators, se_type = se_type)
+      i1 <- match(f$S1, S1); i2 <- match(f$S2, S2)
+      out$rho[i1, i2] <- f$rho; out$se[i1, i2] <- f$se
+    }
+    return(list(rho = out$rho, se = out$se, z = out$rho / out$se, S1 = S1, S2 = S2))
   }
   f <- if (pair_sum == "once") 1 else 2
   w1 <- pmax(w1, 0); w2 <- pmax(w2, 0)
@@ -126,8 +152,15 @@ lrcp_distal <- function(Z1, Z2, R1, R2, w1, w2, n, gcov, M, intercept = NULL,
     for (y in c("c", "C")) for (x in c("c", "C")) {
       var <- var + trm(mats[[y]], mats[[x]]) * outer(diag(V1[[y]]), diag(V2[[x]]))
     }
+    if (se_type == "plugin") {
+      # second Isserlis term, Cov(z1a, z2d) Cov(z2b, z1c), from the cross-region
+      # moment c_ad R1 W1^1/2 Rb12 W2^1/2 R2 at the estimate
+      X12 <- A1 %*% (f * rho) %*% t(A2)
+      var <- var + trm(cmat, cmat) * (L1 %*% X12 %*% t(L2))^2
+    }
     se <- sqrt(pmax(var, 0)) / sum(K^2)
   } else {
+    if (se_type == "plugin") warning("se_type = \"plugin\" is implemented for GLS and OLS; WLS reports the null SE")
     # separable WLS over same-trait products
     s <- diag(cmat)
     v1 <- outer(diag(G1), s) + matrix(diag(intercept), nrow(Z1), q, byrow = TRUE)

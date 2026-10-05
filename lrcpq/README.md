@@ -14,6 +14,8 @@ Model: `Y = XB + E`, `B ~ MN(0, U, V)` with `U = W^{1/2} Rβ W^{1/2}` and `V = H
 install.packages("lrcpq", repos = NULL, type = "source")
 ```
 
+Speed: use an optimised BLAS. With OpenBLAS (`apt-get install libopenblas0-pthread`) instead of R's reference BLAS, per-tag LRCQ on chromosome 22 (15,850 HM3 SNPs, 100 traits, 1000G LD) drops from 12 minutes to 42 seconds, roughly 50 minutes genome-wide.
+
 ## Four-stage estimator
 
 | Stage | Parameter | Function |
@@ -21,9 +23,21 @@ install.packages("lrcpq", repos = NULL, type = "source")
 | 1 | `h²`, `h_ab` | `ldsc_h2()`, `ldsc_gcov()`, `ldsc_matrix()` |
 | 2 | intercepts `C` | `ldsc_matrix()` (cross-trait intercepts), `make_intercept()` for known overlap |
 | 3 | `w` (LRCQ) | `lrcq()` / `lrcq_window()`; `method = "ols" / "wls" / "irls" / "equal"`; `rectify_w()` methods A, B, C |
-| 4 | `Rβ` (LRCP) | `lrcp()` (in progress) |
+| 4 | `Rβ` (LRCP) | `lrcp_distal()` (GLS/OLS/WLS, `se_type = "null"/"plugin"`), `lrcp_mle()`, `lrcp_local()`; gene level `lrcp_gene()` |
 
 Stage 3 uses the fast OLS/WLS solution: stacking q traits gives the design `s ⊗ D` (`D = R∘R`), so the regression collapses to one m-by-m solve per LD window, `(D Ω D) w = D u`.
+
+## Real data
+
+| Task | Functions |
+|---|---|
+| Pan-UKB phenotypes and Z-scores (tabix + HTTP range requests, no full download) | `panukb_manifest()`, `panukb_select()`, `panukb_z()` |
+| LD reference | `ld_from_plink()` (1000G EUR, built by `inst/scripts/build_1000g_eur_hm3.sh`), `ld_from_windows()` (UKB in-sample LD windows), `ld_blocks_eur()`, `harmonise_alleles()` |
+| Pipelines | `run_lrcq()` (stages 1-3), `run_lrcp()` (screen on `w`, distal block pairs, BH/BY q-values), `gcov_from_rg()`, `prune_traits()` |
+| Aggregation | `lrcq_category()`, `lrcq_annot_regression()`, `trait_weights()` |
+| Power | `power_lrcq()`, `power_lrcp()`, `detectable_effect()` |
+
+Vignettes: `vignette("simulation", package = "lrcpq")` and `vignette("real-data", package = "lrcpq")`.
 
 ## Simulation in five lines
 

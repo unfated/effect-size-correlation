@@ -90,3 +90,46 @@ test_that("pipelines run end to end and rank true pairs first", {
   top <- fp[order(fp$p), ][1:2, ]
   expect_setequal(paste(top$snp1, top$snp2), c("10 160", "60 210"))
 })
+
+test_that("plug-in LRCP SE is calibrated at large rho", {
+  set.seed(14)
+  s <- sim_two_regions(q = 30, rho = c(0.9, 0.3, 0))
+  est <- se <- NULL
+  for (r in 1:150) {
+    sim <- simulate_lrcpq(s$blocks, n = s$n, w = s$w, Rb = s$Rb, gcov = s$gcov, M = s$M)
+    f <- lrcp_distal(sim$Z[1:30, ], sim$Z[31:60, ], s$blocks[[1]], s$blocks[[2]],
+                     s$w[1:30], s$w[31:60], s$n, s$gcov, s$M, se_type = "plugin")
+    est <- rbind(est, diag(f$rho)); se <- rbind(se, diag(f$se))
+  }
+  expect_lt(abs(mean(se[, 1]) / sd(est[, 1]) - 1), 0.15)
+})
+
+test_that("gcov_from_rg builds a PSD covariance and diagonal gcov warns", {
+  rg <- matrix(c(1, 0.9, -0.9, 0.9, 1, 0.9, -0.9, 0.9, 1), 3)   # not PSD
+  G <- gcov_from_rg(c(0.2, 0.3, 0.4), rg)
+  expect_gte(min(eigen(G)$values), -1e-10)
+  expect_equal(diag(G), c(0.2, 0.3, 0.4))
+  expect_warning(lrcpq:::check_gcov(diag(3), 3), "diagonal")
+})
+
+test_that("prune_traits keeps a genetically diverse set", {
+  rg <- matrix(0.1, 4, 4); diag(rg) <- 1; rg[1, 2] <- rg[2, 1] <- 0.9
+  expect_equal(prune_traits(rg, c(1, 2, 0.5, 0.2)), c(2, 3, 4))
+  expect_equal(prune_traits(rg, c(1, 2, 0.5, 0.2), max_traits = 2), c(2, 3))
+})
+
+test_that("candidates with non-positive variance are dropped, not an error", {
+  set.seed(15)
+  s <- sim_two_regions(q = 30)
+  sim <- simulate_lrcpq(s$blocks, n = s$n, w = s$w, gcov = s$gcov, M = s$M)
+  w1 <- s$w[1:30]; w1[c(5, 2)] <- c(10, 0)
+  for (m in c("gls", "ols", "wls")) {
+    f <- suppressWarnings(lrcp_distal(sim$Z[1:30, ], sim$Z[31:60, ], s$blocks[[1]], s$blocks[[2]],
+                                      w1, s$w[31:60], s$n, s$gcov, s$M, S1 = c(2, 5, 12, 20),
+                                      S2 = which(s$w[31:60] > 0), method = m))
+    expect_true(all(is.na(f$rho[1, ])))
+    expect_true(all(is.finite(f$rho[-1, ])))
+  }
+  expect_warning(lrcp_distal(sim$Z[1:30, ], sim$Z[31:60, ], s$blocks[[1]], s$blocks[[2]],
+                             w1, s$w[31:60], s$n, s$gcov, s$M, S1 = c(2, 5, 12, 20)), "dropped")
+})
