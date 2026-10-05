@@ -29,7 +29,8 @@ one_rep <- function(q, rho, traits, ld_r, M, do_mle = FALSE) {
   w1 <- w[reg1]; w2 <- w[reg2]
   S1 <- which(w1 > 0); S2 <- which(w2 > 0)
   args <- list(Z1 = Z1, Z2 = Z2, R1 = R1, R2 = R2, w1 = w1, w2 = w2, n = sim$n,
-               gcov = gc$gcov, M = M, intercept = C, S1 = S1, S2 = S2)
+               gcov = gc$gcov, M = M, intercept = C, S1 = S1, S2 = S2,
+               denominators = Sys.getenv("DENOM", "w"))
   fg <- do.call(lrcp_distal, c(args, method = "gls"))
   fo <- do.call(lrcp_distal, c(args, method = "ols"))
   fp <- do.call(lrcp_distal, c(args, method = "gls", se_type = "plugin"))  # SE for CIs at rho != 0
