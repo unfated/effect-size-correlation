@@ -1,10 +1,13 @@
 #!/usr/bin/env Rscript
 # Stage 3 on Pan-UKB: tag-set (clump-level) LRCQ in every UKB LD window.
 #
-# Usage: 30_stage3_lrcq.R <zprefix> <ldsc_prefix> <ld_dir> <out_tsv> [method] [trait_subset_col]
+# Usage: 30_stage3_lrcq.R <zprefix> <ldsc_prefix> <ld_dir> <out_tsv> [method] [N_ref] [trait_ids_file]
 #   zprefix     : output of 20_build_zmatrix.py (.Z.f32 + .traits.tsv)
 #   ldsc_prefix : output of 21_ldsc_matrix.py (.h2.tsv, .intercept.tsv, .gcov.tsv)
 #   method      : wls (default) | equal | ols
+#   N_ref       : LD reference size for the r^2 bias correction (337000 for UKB
+#                 in-sample windows, 503 for 1000G EUR)
+#   trait_ids_file : optional file with one trait_id per line (trait subset)
 # Diagonal h2 and intercepts are Pan-UKB's own univariate LDSC values
 # (h2_panukb_ldsc, intercept_panukb); off-diagonal c_ab and h_ab come from the
 # matrix LDSC fit. Scale: s_a = n_a h2_a / M with M = M_5_50, matching the
@@ -16,15 +19,23 @@ suppressPackageStartupMessages(library(lrcpq))
 a <- commandArgs(TRUE)
 zp <- a[1]; lp <- a[2]; ld_dir <- a[3]; out <- a[4]
 method <- if (length(a) >= 5) a[5] else "wls"
+N_ref <- if (length(a) >= 6) as.numeric(a[6]) else 337000
+subset_file <- if (length(a) >= 7) a[7] else NA
 here <- normalizePath(file.path(dirname(sub("--file=", "", grep("--file=", commandArgs(FALSE), value = TRUE))), ".."))
 source(file.path(here, "R", "lrcq_tools.R"))
 
-traits <- read.delim(paste0(zp, ".traits.tsv"), stringsAsFactors = FALSE)
+traits_all <- read.delim(paste0(zp, ".traits.tsv"), stringsAsFactors = FALSE)
+q_all <- nrow(traits_all)
+cols <- seq_len(q_all)
+if (!is.na(subset_file)) cols <- which(traits_all$trait_id %in% readLines(subset_file))
+traits <- traits_all[cols, ]
 q <- nrow(traits)
 h2t <- read.delim(paste0(lp, ".h2.tsv"), stringsAsFactors = FALSE)
+h2t <- h2t[match(traits$trait_id, h2t$trait_id), ]
 stopifnot(identical(h2t$trait_id, traits$trait_id))
 rd <- function(f) as.matrix(read.delim(f, row.names = 1, check.names = FALSE))
-C <- rd(paste0(lp, ".intercept.tsv")); G <- rd(paste0(lp, ".gcov.tsv"))
+C <- rd(paste0(lp, ".intercept.tsv"))[traits$trait_id, traits$trait_id]
+G <- rd(paste0(lp, ".gcov.tsv"))[traits$trait_id, traits$trait_id]
 diag(C) <- h2t$intercept_panukb
 # rescale genetic covariances so the diagonal matches the Pan-UKB h2
 d_old <- sqrt(pmax(diag(G), 1e-6)); d_new <- sqrt(pmax(h2t$h2_panukb_ldsc, 1e-6))
@@ -38,9 +49,11 @@ M <- as.numeric(readLines("/home/user/data/ref/UKBB.EUR.l2.M_5_50"))
 uni <- read.delim("/home/user/data/ref/snp_universe.tsv", stringsAsFactors = FALSE)
 m_all <- nrow(uni)
 zcon <- file(paste0(zp, ".Z.f32"), "rb")
-read_rows <- function(i0, i1) {          # contiguous universe rows i0..i1
-  seek(zcon, (i0 - 1) * q * 4)
-  matrix(readBin(zcon, "numeric", (i1 - i0 + 1) * q, size = 4), ncol = q, byrow = TRUE)
+read_rows <- function(ui) {              # universe rows ui (sorted), trait subset cols
+  i0 <- min(ui); i1 <- max(ui)
+  seek(zcon, (i0 - 1) * q_all * 4)
+  X <- matrix(readBin(zcon, "numeric", (i1 - i0 + 1) * q_all, size = 4), ncol = q_all, byrow = TRUE)
+  X[ui - i0 + 1, cols, drop = FALSE]
 }
 Ci <- solve(C)
 
@@ -62,8 +75,8 @@ for (i in seq_len(nrow(win))) {
   t0 <- Sys.time()
   wd <- read_window(file.path(ld_dir, win$name[i]))
   ui <- match(wd$snps$ID, uni$ID)
-  stopifnot(!anyNA(ui), all(diff(ui) == 1))
-  Z <- read_rows(ui[1], ui[length(ui)])
+  stopifnot(!anyNA(ui), all(diff(ui) > 0))
+  Z <- read_rows(ui)
   # missing Z: neutral imputation z^2 = c_aa + s_a * l_k (w = 1); flagged in output
   miss <- is.na(Z)
   if (any(miss)) {
@@ -72,7 +85,7 @@ for (i in seq_len(nrow(win))) {
     Z[miss] <- sqrt(E2[miss])
   }
   tags <- prune_tags(wd$R, 0.5)
-  f <- lrcq_window(Z, wd$R, n, G, M, C, method = method, N_ref = 337000,
+  f <- lrcq_window(Z, wd$R, n, G, M, C, method = method, N_ref = N_ref,
                    tags = tags$keep, se = "model")
   core <- wd$snps$BP >= win$core_lo[i] & wd$snps$BP < win$core_hi[i]
   ct <- core[tags$keep]
