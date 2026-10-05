@@ -7,7 +7,11 @@
 #   method      : wls (default) | equal | ols
 #   N_ref       : LD reference size for the r^2 bias correction (337000 for UKB
 #                 in-sample windows, 503 for 1000G EUR)
-#   trait_ids_file : optional file with one trait_id per line (trait subset)
+#   trait_ids_file : optional file with one trait_id per line (trait subset; "all" or "-" = all)
+#   n_clusters  : trait clusters for the delete-one-cluster jackknife (default 20;
+#                 ols/equal only). Clusters: average-linkage clustering of 1 - |r_g|.
+#                 Replicates (raw scale, one column per cluster) go to <out>.jk.f32,
+#                 rows in the order of <out>.
 # Diagonal h2 and intercepts are Pan-UKB's own univariate LDSC values
 # (h2_panukb_ldsc, intercept_panukb); off-diagonal c_ab and h_ab come from the
 # matrix LDSC fit. Scale: s_a = n_a h2_a / M with M = M_5_50, matching the
@@ -20,7 +24,8 @@ a <- commandArgs(TRUE)
 zp <- a[1]; lp <- a[2]; ld_dir <- a[3]; out <- a[4]
 method <- if (length(a) >= 5) a[5] else "wls"
 N_ref <- if (length(a) >= 6) as.numeric(a[6]) else 337000
-subset_file <- if (length(a) >= 7) a[7] else NA
+subset_file <- if (length(a) >= 7 && !(a[7] %in% c("all", "-"))) a[7] else NA
+K <- if (length(a) >= 8) as.integer(a[8]) else 20L
 here <- normalizePath(file.path(dirname(sub("--file=", "", grep("--file=", commandArgs(FALSE), value = TRUE))), ".."))
 source(file.path(here, "R", "lrcq_tools.R"))
 
@@ -56,6 +61,18 @@ read_rows <- function(ui) {              # universe rows ui (sorted), trait subs
   X[ui - i0 + 1, cols, drop = FALSE]
 }
 Ci <- solve(C)
+# trait clusters for the jackknife
+RG <- rd(paste0(lp, ".rg.tsv"))[traits$trait_id, traits$trait_id]
+RG[!is.finite(RG)] <- 0
+RG <- pmin(pmax(RG, -1), 1)
+cl <- cutree(hclust(as.dist(1 - abs(RG)), "average"), k = min(K, q))
+K <- max(cl)
+cat(sprintf("%d traits, %d jackknife clusters (sizes %s)\n", q, K, paste(sort(tabulate(cl), TRUE), collapse = ",")))
+write.table(data.frame(trait_id = traits$trait_id, cluster = cl), sub("\\.tsv$", ".clusters.tsv", out),
+            sep = "\t", quote = FALSE, row.names = FALSE)
+s_all <- n * diag(G) / M
+v_all <- if (method == "equal") 1 / s_all else s_all     # u = sum_a v_a y_a, omega = sum_a v_a s_a
+jkf <- sub("\\.tsv$", ".jk.f32", out)
 
 files <- list.files(ld_dir, "\\.snps\\.tsv$")
 nm <- sub("\\.snps\\.tsv$", "", files)
@@ -87,6 +104,21 @@ for (i in seq_len(nrow(win))) {
   tags <- prune_tags(wd$R, 0.5)
   f <- lrcq_window(Z, wd$R, n, G, M, C, method = method, N_ref = N_ref,
                    tags = tags$keep, se = "model")
+  # delete-one-trait-cluster jackknife (closed form for ols / equal weights)
+  jk <- NULL
+  if (method %in% c("ols", "equal")) {
+    D <- lrcpq:::ld_r2(wd$R, N_ref)
+    e <- eigen(D, symmetric = TRUE)
+    if (min(e$values) < 0) D <- e$vectors %*% (pmax(e$values, 0) * t(e$vectors))
+    DT <- D[, tags$keep, drop = FALSE]
+    Hm <- solve(crossprod(DT), t(DT))                       # p x m
+    Yv <- (Z^2 - matrix(diag(C), nrow(Z), q, byrow = TRUE)) * matrix(v_all, nrow(Z), q, byrow = TRUE)
+    Uc <- sapply(seq_len(K), function(k) rowSums(Yv[, cl == k, drop = FALSE]))   # m x K
+    oc <- sapply(seq_len(K), function(k) sum((v_all * s_all)[cl == k]))
+    full <- as.vector(Hm %*% rowSums(Uc)) / sum(oc)
+    stopifnot(max(abs(full - f$w)) < 1e-6 * max(1, max(abs(f$w))))
+    jk <- (Hm %*% (rowSums(Uc) - Uc)) / matrix(sum(oc) - oc, nrow(Hm), K, byrow = TRUE)
+  }
   core <- wd$snps$BP >= win$core_lo[i] & wd$snps$BP < win$core_hi[i]
   ct <- core[tags$keep]
   clump_n <- tabulate(match(tags$assign[core], tags$keep), length(tags$keep))
@@ -94,11 +126,16 @@ for (i in seq_len(nrow(win))) {
   P <- tags$keep[ct]
   res <- data.frame(window = win$name[i], CHR = wd$snps$CHR[P], BP = wd$snps$BP[P],
                     ID = wd$snps$ID[P], RSID = wd$snps$RSID[P],
-                    w_raw = f$w[ct], se = f$se[ct], clump_n = clump_n[ct],
+                    w_raw = f$w[ct], se = f$se[ct],
+                    se_jk = if (is.null(jk)) NA else sqrt((K - 1) / K * rowSums((jk[ct, , drop = FALSE] - rowMeans(jk[ct, , drop = FALSE]))^2)),
+                    clump_n = clump_n[ct],
                     l2_window = rowSums(wd$R^2)[P], n_missing = rowSums(miss)[P],
                     cmp[P, ])
   write.table(res, out, sep = "\t", quote = FALSE, row.names = FALSE,
               append = file.exists(out), col.names = !file.exists(out))
+  if (!is.null(jk)) {
+    jc <- file(jkf, "ab"); writeBin(as.vector(t(jk[ct, , drop = FALSE])), jc, size = 4); close(jc)
+  }
   # SNP -> tag map for the core SNPs
   map <- data.frame(ID = wd$snps$ID[core], tag_ID = wd$snps$ID[tags$assign[core]])
   mf <- sub("\\.tsv$", ".snp2tag.tsv", out)
