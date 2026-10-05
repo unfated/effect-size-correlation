@@ -117,3 +117,19 @@ test_that("prune_traits keeps a genetically diverse set", {
   expect_equal(prune_traits(rg, c(1, 2, 0.5, 0.2)), c(2, 3, 4))
   expect_equal(prune_traits(rg, c(1, 2, 0.5, 0.2), max_traits = 2), c(2, 3))
 })
+
+test_that("candidates with non-positive variance are dropped, not an error", {
+  set.seed(15)
+  s <- sim_two_regions(q = 30)
+  sim <- simulate_lrcpq(s$blocks, n = s$n, w = s$w, gcov = s$gcov, M = s$M)
+  w1 <- s$w[1:30]; w1[c(5, 2)] <- c(10, 0)
+  for (m in c("gls", "ols", "wls")) {
+    f <- suppressWarnings(lrcp_distal(sim$Z[1:30, ], sim$Z[31:60, ], s$blocks[[1]], s$blocks[[2]],
+                                      w1, s$w[31:60], s$n, s$gcov, s$M, S1 = c(2, 5, 12, 20),
+                                      S2 = which(s$w[31:60] > 0), method = m))
+    expect_true(all(is.na(f$rho[1, ])))
+    expect_true(all(is.finite(f$rho[-1, ])))
+  }
+  expect_warning(lrcp_distal(sim$Z[1:30, ], sim$Z[31:60, ], s$blocks[[1]], s$blocks[[2]],
+                             w1, s$w[31:60], s$n, s$gcov, s$M, S1 = c(2, 5, 12, 20)), "dropped")
+})

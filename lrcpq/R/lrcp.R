@@ -98,8 +98,25 @@ lrcp_distal <- function(Z1, Z2, R1, R2, w1, w2, n, gcov, M, intercept = NULL,
   if (denominators == "R") {
     w1[S1] <- local_variance(Z1, R1, S1, n, gcov, M, intercept)
     w2[S2] <- local_variance(Z2, R2, S2, n, gcov, M, intercept)
-    if (any(w1[S1] <= 0) || any(w2[S2] <= 0))
-      warning("non-positive R-projected variance for some candidates; rho for them is not defined")
+  }
+  # candidates with a non-positive variance have no defined rho: drop them
+  # (re-projecting the rest), return NA in their rows/columns, and warn
+  ok1 <- w1[S1] > 0; ok2 <- w2[S2] > 0
+  if (!all(ok1) || !all(ok2)) {
+    warning(sum(!ok1) + sum(!ok2), " candidate(s) with non-positive ",
+            if (denominators == "R") "R-projected " else "", "variance dropped; ",
+            "their rho is NA", call. = FALSE)
+    p1 <- length(S1); p2 <- length(S2)
+    out <- list(rho = matrix(NA_real_, p1, p2), se = matrix(NA_real_, p1, p2))
+    if (any(ok1) && any(ok2)) {
+      f <- lrcp_distal(Z1, Z2, R1, R2, w1, w2, n, gcov, M, intercept,
+                       S1 = S1[ok1], S2 = S2[ok2], trait_pairs = trait_pairs,
+                       method = method, ridge = ridge, pair_sum = pair_sum,
+                       N_ref = N_ref, denominators = denominators, se_type = se_type)
+      i1 <- match(f$S1, S1); i2 <- match(f$S2, S2)
+      out$rho[i1, i2] <- f$rho; out$se[i1, i2] <- f$se
+    }
+    return(list(rho = out$rho, se = out$se, z = out$rho / out$se, S1 = S1, S2 = S2))
   }
   f <- if (pair_sum == "once") 1 else 2
   w1 <- pmax(w1, 0); w2 <- pmax(w2, 0)
