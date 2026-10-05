@@ -103,3 +103,17 @@ test_that("plug-in LRCP SE is calibrated at large rho", {
   }
   expect_lt(abs(mean(se[, 1]) / sd(est[, 1]) - 1), 0.15)
 })
+
+test_that("gcov_from_rg builds a PSD covariance and diagonal gcov warns", {
+  rg <- matrix(c(1, 0.9, -0.9, 0.9, 1, 0.9, -0.9, 0.9, 1), 3)   # not PSD
+  G <- gcov_from_rg(c(0.2, 0.3, 0.4), rg)
+  expect_gte(min(eigen(G)$values), -1e-10)
+  expect_equal(diag(G), c(0.2, 0.3, 0.4))
+  expect_warning(lrcpq:::check_gcov(diag(3), 3), "diagonal")
+})
+
+test_that("prune_traits keeps a genetically diverse set", {
+  rg <- matrix(0.1, 4, 4); diag(rg) <- 1; rg[1, 2] <- rg[2, 1] <- 0.9
+  expect_equal(prune_traits(rg, c(1, 2, 0.5, 0.2)), c(2, 3, 4))
+  expect_equal(prune_traits(rg, c(1, 2, 0.5, 0.2), max_traits = 2), c(2, 3))
+})
