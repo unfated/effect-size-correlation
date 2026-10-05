@@ -1,4 +1,4 @@
-suppressPackageStartupMessages({library(lrcpq); library(Matrix)})
+.libPaths(c("/home/user/rlib2", .libPaths())); suppressPackageStartupMessages({library(lrcpq); library(Matrix)})
 set.seed(3)
 res <- NULL
 for (r in 1:150) for (M in c(2e5)) {
@@ -10,7 +10,7 @@ for (r in 1:150) for (M in c(2e5)) {
   R1 <- as.matrix(bdiag(blocks[1:2])); R2 <- as.matrix(bdiag(blocks[3:4]))
   S1 <- which(w[reg1]>0); S2 <- which(w[reg2]>0)
   Z1 <- sim$Z[reg1,]; Z2 <- sim$Z[reg2,]
-  f <- lrcp_distal(Z1,Z2,R1,R2,w[reg1],w[reg2],sim$n,gc$gcov,M,C,S1=S1,S2=S2,method="gls",denominators="R")
+  f <- lrcp_distal(Z1,Z2,R1,R2,w[reg1],w[reg2],sim$n,gc$gcov,M,C,S1=S1,S2=S2,method="gls")
   g <- lrcp_gene(Z1[S1,],Z2[S2,],R1[S1,S1],R2[S2,S2],n=sim$n,gcov=gc$gcov,M=M,intercept=C,n_sim=0)
   g2 <- lrcp_gene(Z1[S1,],Z2[S2,],R1[S1,S1],R2[S2,S2],n=sim$n,gcov=gc$gcov,M=M,intercept=C,n_sim=0,
                   GA=(R1%*%(w[reg1]*R1))[S1,S1])
