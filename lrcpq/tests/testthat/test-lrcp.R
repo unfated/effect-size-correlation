@@ -63,3 +63,14 @@ test_that("trait covariance helper matches the moment equation", {
     expect_equal(Mk[a, b], expected_zz(R, w, NULL, n, g, 100, C, a, b)[2, 2])
   expect_equal(q_eff(diag(3)), 3)
 })
+
+test_that("R-projected local variance estimates w of candidates", {
+  set.seed(23)
+  s <- sim_two_regions(q = 60)
+  v <- NULL
+  for (r in 1:40) {
+    sim <- simulate_lrcpq(s$blocks, n = s$n, w = s$w, gcov = s$gcov, M = s$M)
+    v <- rbind(v, local_variance(sim$Z[1:30, ], s$blocks[[1]], c(5, 12, 20), s$n, s$gcov, s$M))
+  }
+  expect_true(all(abs(colMeans(v) - 10) < 4 * apply(v, 2, sd) / sqrt(40) + 0.5))
+})

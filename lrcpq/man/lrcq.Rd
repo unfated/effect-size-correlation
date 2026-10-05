@@ -17,6 +17,8 @@ lrcq(
   cross_terms = FALSE,
   Rb = NULL,
   chr = NULL,
+  tag_r2 = NULL,
+  windows = NULL,
   ...
 )
 }
@@ -56,7 +58,15 @@ abstract and Table 6.1).}
 
 \item{chr}{Optional chromosome per SNP (windows do not cross chromosomes).}
 
-\item{...}{Passed to [lrcq_window()].}
+\item{tag_r2}{If set (e.g. 0.5), estimate clump-level enrichment on a
+greedy-pruned tag set per window (recommended for real HapMap3 LD, where
+\eqn{D} is near singular); non-tag SNPs get \code{NA} and a \code{tag}
+column naming their tag.}
+
+\item{windows}{Optional precomputed window list (\code{idx}, \code{core}),
+e.g. from an LD reference stored as overlapping windows.}
+
+\item{...}{Passed to [lrcq_window()] (e.g. \code{ridge}, \code{psd}).}
 }
 \value{
 Data frame with \code{w_raw}, \code{w} (rectified), \code{se},

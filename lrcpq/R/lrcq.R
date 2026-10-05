@@ -79,13 +79,21 @@ rectify_w <- function(w, method = c("none", "A", "B", "C", "zero")) {
 #' @param w_plugin Enrichment used to evaluate the SE formula; default is
 #'   \code{w_hat} rectified by method A, which keeps the SE calibrated
 #'   (raw plug-in overstates SEs by roughly 20\% when most SNPs are null).
-#' @return List with \code{w}, \code{se}, \code{iter}.
+#' @param tags Optional indices of tag SNPs carrying the parameters
+#'   (clump-level LRCQ). Responses still come from all SNPs; the estimand of
+#'   each tag is its clump total \eqn{w_T + \Pi w_{\bar T}},
+#'   \eqn{\Pi = (D_{\cdot T}'D_{\cdot T})^{-1}D_{\cdot T}'D_{\cdot \bar T}}
+#'   (theory supplement S3.11). Use with [prune_ld()] at \eqn{r^2 < 0.5}.
+#' @param psd Project \eqn{D} onto the PSD cone (clip negative eigenvalues)
+#'   before solving.
+#' @return List with \code{w} and \code{se} (one per tag), \code{iter},
+#'   \code{tags}.
 #' @export
 lrcq_window <- function(Z, R, n, gcov, M, intercept = NULL,
                         method = c("wls", "ols", "irls", "equal"), ridge = 0,
                         N_ref = Inf, Rb = NULL, pair_sum = c("once", "chapter"),
                         se = c("model", "none"), max_iter = 20, tol = 1e-6,
-                        w_plugin = NULL) {
+                        w_plugin = NULL, tags = NULL, psd = TRUE) {
   method <- match.arg(method)
   se <- match.arg(se)
   pair_sum <- match.arg(pair_sum)
@@ -100,11 +108,21 @@ lrcq_window <- function(Z, R, n, gcov, M, intercept = NULL,
   Cd <- diag(intercept)
   R <- as.matrix(R)
   D <- ld_r2(R, N_ref)
+  if (psd) {
+    # the r2 bias correction (and float rounding) can break positive
+    # semi-definiteness; project to the PSD cone before any inverse
+    e <- eigen(D, symmetric = TRUE)
+    if (min(e$values) < 0) D <- e$vectors %*% (pmax(e$values, 0) * t(e$vectors))
+  }
+  if (is.null(tags)) tags <- seq_len(m)
+  p <- length(tags)
+  DT <- D[, tags, drop = FALSE]
+  expand <- function(wt) { x <- numeric(m); x[tags] <- wt; x }
   Y <- Z^2 - matrix(Cd, m, q, byrow = TRUE)
 
   offset_fn <- function(w) {
     if (is.null(Rb)) return(rep(0, m))
-    S <- sigma_w(pmax(w, 0), Rb, pair_sum)
+    S <- sigma_w(pmax(expand(w), 0), Rb, pair_sum)
     diag(S) <- 0
     rowSums((R %*% S) * R)
   }
@@ -112,12 +130,12 @@ lrcq_window <- function(Z, R, n, gcov, M, intercept = NULL,
     Omega <- matrix(s^2, m, q, byrow = TRUE) / V
     omega <- rowSums(Omega)
     u <- rowSums((Y - outer(off, s)) * matrix(s, m, q, byrow = TRUE) / V)
-    A <- crossprod(D, D * omega)
-    if (ridge > 0) A <- A + diag(ridge * mean(diag(A)), m)
-    list(w = as.vector(solve(A, crossprod(D, u))), A = A)
+    A <- crossprod(DT, DT * omega)
+    if (ridge > 0) A <- A + diag(ridge * mean(diag(A)), p)
+    list(w = as.vector(solve(A, crossprod(DT, u))), A = A)
   }
   var_fn <- function(w, off) {
-    mu <- outer(pmax(as.vector(D %*% w) + off, 0), s) +
+    mu <- outer(pmax(as.vector(DT %*% w) + off, 0), s) +
       matrix(Cd, m, q, byrow = TRUE)
     2 * mu^2
   }
@@ -142,7 +160,7 @@ lrcq_window <- function(Z, R, n, gcov, M, intercept = NULL,
     }
   }
   w_hat <- fit$w
-  se_w <- rep(NA_real_, m)
+  se_w <- rep(NA_real_, p)
   if (se == "model") {
     V <- if (method %in% c("ols", "equal")) V0 else var_fn(w_hat, off)
     Fm <- matrix(s, m, q, byrow = TRUE) / V
@@ -150,15 +168,15 @@ lrcq_window <- function(Z, R, n, gcov, M, intercept = NULL,
     # Plugging raw w_hat into the variance inflates it (noise in null SNPs
     # is clipped at zero), so the default plug-in is the rectified estimate.
     w_se <- if (is.null(w_plugin)) rectify_w(w_hat, "A") else w_plugin
-    Ak <- R %*% sigma_w(pmax(w_se, 0), Rb, pair_sum) %*% R
+    Ak <- R %*% sigma_w(pmax(expand(w_se), 0), Rb, pair_sum) %*% R
     Vu <- 2 * (Ak^2 * (Fm %*% (cmat^2) %*% t(Fm)) +
                  2 * Ak * R * (Fm %*% (cmat * intercept) %*% t(Fm)) +
                  R^2 * (Fm %*% (intercept^2) %*% t(Fm)))
     Ainv <- solve(fit$A)
-    G <- Ainv %*% t(D)
+    G <- Ainv %*% t(DT)
     se_w <- sqrt(pmax(rowSums((G %*% Vu) * G), 0))
   }
-  list(w = w_hat, se = se_w, iter = iter)
+  list(w = w_hat, se = se_w, iter = iter, tags = tags)
 }
 
 #' Genome-wide LRCQ: genetic-effect enrichment for every SNP
@@ -186,32 +204,51 @@ lrcq_window <- function(Z, R, n, gcov, M, intercept = NULL,
 #' @param Rb m-by-m genetic-effect correlation (needed if
 #'   \code{cross_terms = TRUE}).
 #' @param chr Optional chromosome per SNP (windows do not cross chromosomes).
-#' @param ... Passed to [lrcq_window()].
+#' @param tag_r2 If set (e.g. 0.5), estimate clump-level enrichment on a
+#'   greedy-pruned tag set per window (recommended for real HapMap3 LD, where
+#'   \eqn{D} is near singular); non-tag SNPs get \code{NA} and a \code{tag}
+#'   column naming their tag.
+#' @param windows Optional precomputed window list (\code{idx}, \code{core}),
+#'   e.g. from an LD reference stored as overlapping windows.
+#' @param ... Passed to [lrcq_window()] (e.g. \code{ridge}, \code{psd}).
 #' @inheritParams lrcq_window
 #' @return Data frame with \code{w_raw}, \code{w} (rectified), \code{se},
 #'   \code{z} (\code{w_raw / se}) and \code{block}.
 #' @export
 lrcq <- function(Z, ld, n, gcov, M, intercept = NULL, window_size = 3,
                  method = c("wls", "ols", "irls", "equal"), rectify = "none",
-                 cross_terms = FALSE, Rb = NULL, chr = NULL, ...) {
+                 cross_terms = FALSE, Rb = NULL, chr = NULL, tag_r2 = NULL,
+                 windows = NULL, ...) {
   method <- match.arg(method)
   Z <- as.matrix(Z)
   stopifnot(nrow(Z) == ld$m)
   m <- nrow(Z)
   w <- se <- rep(NA_real_, m)
-  for (win in make_windows(ld$block_id, window_size, chr)) {
+  tag_of <- seq_len(m)
+  if (is.null(windows)) windows <- make_windows(ld$block_id, window_size, chr)
+  for (win in windows) {
     Rw <- ld$get(win$idx)
     Rbw <- if (cross_terms) as.matrix(Rb[win$idx, win$idx]) else NULL
+    tags <- if (is.null(tag_r2)) NULL else prune_ld(Rw, tag_r2)
     f <- lrcq_window(Z[win$idx, , drop = FALSE], Rw, n, gcov, M, intercept,
-                     method = method, N_ref = ld$N, Rb = Rbw, ...)
-    core <- win$idx[win$core]
-    w[core] <- f$w[win$core]
-    se[core] <- f$se[win$core]
+                     method = method, N_ref = ld$N, Rb = Rbw, tags = tags, ...)
+    tg <- f$tags
+    core_tags <- which(tg %in% win$core)
+    w[win$idx[tg[core_tags]]] <- f$w[core_tags]
+    se[win$idx[tg[core_tags]]] <- f$se[core_tags]
+    if (!is.null(tag_r2)) {
+      # each core SNP points to the tag it is most correlated with
+      nearest <- tg[apply(abs(Rw[win$core, tg, drop = FALSE]), 1, which.max)]
+      tag_of[win$idx[win$core]] <- win$idx[nearest]
+    }
   }
-  data.frame(snp = seq_len(m), block = ld$block_id, w_raw = w,
-             w = rectify_w(w, rectify), se = se, z = w / se)
+  out <- data.frame(snp = seq_len(m), block = ld$block_id, w_raw = w,
+                    w = NA_real_, se = se, z = w / se)
+  ok <- !is.na(w)
+  out$w[ok] <- rectify_w(w[ok], rectify)
+  if (!is.null(tag_r2)) out$tag <- tag_of
+  out
 }
-
 #' Brute-force stacked regression for checking the fast LRCQ solution
 #'
 #' Builds the \eqn{mq \times m} design \eqn{X = s \otimes D} explicitly and
