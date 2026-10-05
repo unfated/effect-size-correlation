@@ -9,6 +9,11 @@ LRCQ category (|c|_eff effectively independent units, mean enrichment E vs basel
 LRCP pair (tags, distal), H0: rho=0 vs H1: rho, enrichments w_i, w_j:
   Var(C_hat) = [(1 + s w_i)(1 + s w_j) + s^2 C^2] / (q_eff s^2),  C = rho sqrt(w_i w_j)
   test on C_hat; power = P(|C_hat| > z_{a/2} SE0) under H1.
+These single-q_eff forms assume the phenotypic/overlap and genetic correlation matrices give the same
+q_eff. In general, with q_P = q^2/sum Gamma_ab^2, q_G = q^2/sum r_g,ab^2 and q_PG = q^2/sum Gamma_ab r_g,ab:
+  Var(w_hat) = kappa_LD * 2 [1/q_P + 2 s w/q_PG + (s w)^2/q_G] / s^2
+  Var(C_hat) = [1/q_P + s(w_i+w_j)/q_PG + s^2 (w_i w_j + C^2)/q_G] / s^2
+(spotcheck_power.py verifies these). The tables use q_P = q_G = q_PG = q_eff.
 Writes CSVs to the output directory given as argv[1].
 """
 import csv, itertools, sys
@@ -61,3 +66,12 @@ for q_eff, n, h2, w, rho, K in itertools.product([100, 300, 1000], [1e5, 4e5, 1e
 with open(f"{out}/power_lrcp_pair.csv", "w", newline="") as f:
     wr = csv.DictWriter(f, fieldnames=rows[0].keys()); wr.writeheader(); wr.writerows(rows)
 print("written to", out)
+
+# effective number of traits under full sample overlap: q_eff = q^2 / sum_ab Gamma_ab^2 (null, equal s)
+rows = []
+for q, K, rw, rb in itertools.product([100, 300, 1000], [5, 10, 20, 50], [0.2, 0.4, 0.6], [0.0, 0.1]):
+    size = q / K
+    sum_g2 = q * (1 + (size - 1) * rw ** 2) + q * (q - size) * rb ** 2
+    rows.append(dict(q=q, clusters=K, within_rp=rw, between_rp=rb, q_eff=round(q * q / sum_g2, 1)))
+with open(f"{out}/q_eff_overlap.csv", "w", newline="") as f:
+    wr = csv.DictWriter(f, fieldnames=rows[0].keys()); wr.writeheader(); wr.writerows(rows)
