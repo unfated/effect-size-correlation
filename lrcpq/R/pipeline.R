@@ -30,12 +30,41 @@ run_lrcq <- function(Z, ld, n, M, gcov = NULL, intercept = NULL, ldscore = NULL,
     st <- ldsc_matrix(Z, ldscore, n, M)
     gcov <- st$gcov
     if (is.null(intercept)) intercept <- st$intercept
-  }
+  } else check_gcov(gcov, ncol(Z))
   if (is.null(intercept)) intercept <- diag(ncol(Z))
   w <- lrcq(Z, ld, n, gcov, M, intercept, method = method, rectify = rectify,
             tag_r2 = tag_r2, windows = windows, ...)
   if (!is.null(ld$snp)) w <- cbind(ld$snp, w)
   list(stage12 = list(gcov = gcov, intercept = intercept), w = w)
+}
+
+# Warn when a diagonal genetic covariance is supplied for several traits:
+# LRCP and LRCQ standard errors then assume genetically independent traits,
+# which on real phenome-wide data (e.g. many anthropometric traits) makes
+# them far too small.
+check_gcov <- function(gcov, q) {
+  if (q > 1 && !is.null(dim(gcov)) && all(gcov[upper.tri(gcov)] == 0))
+    warning("gcov is diagonal: standard errors assume genetically uncorrelated traits. ",
+            "Supply genetic covariances (e.g. ldsc_matrix() or gcov_from_rg()).", call. = FALSE)
+  invisible(NULL)
+}
+
+#' Genetic covariance from heritabilities and genetic correlations
+#'
+#' @param h2 Length-q SNP heritabilities.
+#' @param rg q-by-q genetic correlation matrix (projected to the nearest
+#'   positive semi-definite correlation matrix if needed).
+#' @return q-by-q genetic covariance matrix.
+#' @export
+gcov_from_rg <- function(h2, rg) {
+  rg <- (rg + t(rg)) / 2
+  e <- eigen(rg, symmetric = TRUE)
+  if (min(e$values) < 0) {
+    rg <- e$vectors %*% (pmax(e$values, 0) * t(e$vectors))
+    d <- sqrt(diag(rg)); rg <- rg / outer(d, d)
+  }
+  h <- sqrt(pmax(h2, 0))
+  rg * outer(h, h)
 }
 
 #' Run LRCP for distal window pairs (stage 4)
@@ -63,6 +92,7 @@ run_lrcp <- function(Z, ld, n, M, gcov, intercept = NULL, lrcq_fit,
                      threshold = 10, z_min = -Inf, min_distance = 5e6,
                      method = "gls", denominators = "R", mle = FALSE) {
   q <- ncol(Z)
+  check_gcov(gcov, q)
   if (is.null(intercept)) intercept <- diag(q)
   wt <- lrcq_fit$w
   cand <- which(!is.na(wt$w_raw) & wt$w_raw >= threshold & wt$z >= z_min)

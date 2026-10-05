@@ -53,3 +53,21 @@ test_that("power helpers reproduce the S9 tables", {
   qe <- effective_traits(diag(3), diag(3))
   expect_equal(unname(qe), c(3, 3, 3))
 })
+
+test_that("category contrast: debiased plug-in and bootstrap are calibrated", {
+  set.seed(54)
+  blocks <- make_ld_ar1(rep(30, 8), 0.6); ld <- ld_from_blocks(blocks); m <- ld$m
+  w <- rep(0.02, m); loc <- c(5, 40, 75, 130, 170, 220); w[loc] <- runif(6, 40, 80)
+  w <- w * m / sum(w)
+  annot <- rbinom(m, 1, 0.3); annot[loc[1:3]] <- 1
+  q <- 40; gc <- make_gcov(q, h2 = rep(0.3, q), type = "cluster", rg = 0.6, n_clusters = 4)
+  C <- make_intercept(q, 1, 0.3); n <- rep(3e5, q); M <- 2e4
+  u <- trait_weights(n, gc$gcov, M, "contrast", rep(c(1, 1, 2, 2), each = 10))
+  r <- t(replicate(100, {
+    Z <- simulate_lrcpq(blocks, n = n, w = w, gcov = gc$gcov, intercept = C, M = M)$Z
+    b <- lrcq_category(Z, ld, annot, n, gc$gcov, M, C, u = u, n_boot = 40)
+    c(b$z, b$p)
+  }))
+  expect_lt(abs(sd(r[, 1]) - 1), 0.2)
+  expect_lt(abs(mean(r[, 2] <= 0.1) - 0.1), 0.08)
+})

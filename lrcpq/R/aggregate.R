@@ -67,10 +67,22 @@ trait_weights <- function(n, gcov, M, type = c("power", "equal", "contrast"),
 #' \deqn{\hat E_c = \sum_k f_k \hat W_k / \sum_k f_k g_k,}
 #' where \eqn{\hat W_k} are tag-set clump totals ([lrcq_window()] with
 #' \code{tags}), \eqn{g_k} the clump sizes and \eqn{f_k = |c \cap k|/g_k}.
-#' Unlike the per-SNP average \eqn{1_c'\hat w/|c|}, this stays well
-#' conditioned when a category splits LD clumps. The variance is exact under
-#' cross-trait correlation and sample overlap (eq. 7.1 with
-#' \eqn{A = Diag(L'f)/\sum f_k g_k}). With
+#' Unlike the per-SNP average \eqn{1_c'\hat w/|c|}, whose variance is
+#' unbounded when a category splits tight LD clumps, this stays well
+#' conditioned. Its estimand is the overlap-weighted enrichment of the clumps
+#' that \eqn{c} touches; it equals \eqn{E_c} when \eqn{c} is a union of
+#' clumps or \eqn{w} is flat within clumps, and is otherwise attenuated
+#' toward the clump mean. Use [lrcq_annot_regression()] for the
+#' annotation-model estimand. A significant result means "clumps overlapping
+#' \eqn{c} are enriched"; attributing it to the SNPs in \eqn{c} rather than
+#' their proxies needs the annotation model or fine-mapping.
+#'
+#' The variance is eq. (7.1) with \eqn{A = Diag(L'f)/\sum f_k g_k}, exact
+#' under cross-trait correlation and sample overlap. Its genetic part needs a
+#' plug-in \eqn{\hat G = R\,Diag(\hat w_+)R}; following S7.4a the plug-in is
+#' always clipped at 0, and by default debiased: the quadratic term
+#' \eqn{\tau_{GG}} is reduced by \eqn{\sum_{st} Cov(\hat W_s, \hat W_t)
+#' [(RAR)_{st}]^2} (floored at 0). With
 #' \code{u = trait_weights(..., "contrast", groups)} it returns the
 #' phenotype-category contrast \eqn{\hat E_c^{(g_1)} - \hat E_c^{(g_2)}}
 #' (S7.4).
@@ -83,22 +95,36 @@ trait_weights <- function(n, gcov, M, type = c("power", "equal", "contrast"),
 #' @param u Trait weights (default power weights, matching OLS).
 #' @param tag_r2 Pruning threshold defining clumps.
 #' @param plugin Rectification applied to the power-weighted clump totals
-#'   that enter the genetic part of the variance.
+#'   that enter the genetic part of the variance (then clipped at 0).
 #' @param w_plugin Optional per-SNP enrichment for the variance instead (e.g.
-#'   the truth in a simulation, or estimates from independent traits).
+#'   the truth in a simulation, or estimates from independent traits); used
+#'   as given, without debiasing.
+#' @param variance \code{"debiased"} (default) or \code{"naive"} plug-in.
+#' @param n_boot For contrasts: number of parametric-bootstrap draws for the
+#'   studentised contrast under \eqn{H_0} (S7.4a; default 200 for contrasts,
+#'   0 to skip). When it runs, \code{p} is the bootstrap p-value and the
+#'   normal-reference p-value is kept as \code{p_norm}. Draws
+#'   \eqn{Z^* \sim N(0, \Gamma\otimes R + T\otimes \hat G_+)} from the pooled,
+#'   clipped fit and recomputes the whole statistic, plug-in included.
 #'
 #' @section Phenotype-category contrasts: with sparse, heavy-tailed
-#'   enrichment the data-based plug-in makes the contrast z-statistic
-#'   self-normalising (the same dominant clumps drive the numerator and the
-#'   SE), so the test is conservative: in a 4-cluster, full-overlap simulation
-#'   the null z had SD 0.81 and no rejections at 5\%. Supply \code{w_plugin}
-#'   from independent data for calibrated contrast tests.
+#'   enrichment a same-data plug-in makes the contrast z-statistic
+#'   self-normalising, so the normal-reference test is conservative (in a
+#'   4-cluster, full-overlap simulation the naive plug-in gave null SD 0.81
+#'   and no rejections at 5\%; the debiased plug-in is closer). The
+#'   bootstrap p-value is calibrated (theory supplement check C3; in the
+#'   package's own check with q = 40 traits in 4 clusters and 6 dominant
+#'   loci, type I error 0.040 at 5\% against 0.030 naive and 0.073 debiased)
+#'   and is the default contrast test.
 #' @return Data frame with one row per annotation: \code{size}, \code{E},
-#'   \code{se}, \code{z} (for \eqn{E = 1}, or 0 for a contrast), \code{p}.
+#'   \code{se}, \code{z} (for \eqn{E = 1}, or 0 for a contrast), \code{p},
+#'   and \code{p_norm} when the bootstrap ran.
 #' @export
 lrcq_category <- function(Z, ld, annot, n, gcov, M, intercept = NULL,
                           u = NULL, tag_r2 = 0.5, plugin = "A",
-                          w_plugin = NULL) {
+                          w_plugin = NULL, variance = c("debiased", "naive"),
+                          n_boot = NULL) {
+  variance <- match.arg(variance)
   Z <- as.matrix(Z)
   q <- ncol(Z)
   annot <- as.matrix(annot) * 1
@@ -110,7 +136,14 @@ lrcq_category <- function(Z, ld, annot, n, gcov, M, intercept = NULL,
   Tm <- scale_matrix(n, gcov, M)
   Cd <- diag(intercept)
   K <- ncol(annot)
-  num <- den <- vr <- numeric(K)
+  contrast <- any(u < 0)
+  if (is.null(n_boot)) n_boot <- if (contrast) 200 else 0
+  # trait-weight constants of eq. (7.1)
+  qf <- function(x, X) sum(x * (X %*% x))
+  cu <- c(qf(u, intercept^2), qf(u, intercept * Tm), qf(u, Tm^2))
+  cp <- c(qf(upow, intercept^2), qf(upow, intercept * Tm), qf(upow, Tm^2))
+  # per-block setup that does not depend on Z
+  blocks <- list()
   for (b in unique(ld$block_id)) {
     idx <- which(ld$block_id == b)
     if (!any(annot[idx, ] != 0)) next
@@ -123,31 +156,82 @@ lrcq_category <- function(Z, ld, annot, n, gcov, M, intercept = NULL,
     L <- solve(crossprod(DT), t(DT))                       # p x m
     clump <- tg[apply(abs(R[, tg, drop = FALSE]), 1, which.max)]
     gk <- as.vector(table(factor(clump, levels = tg)))
-    Y <- Z[idx, , drop = FALSE]^2 - matrix(Cd, length(idx), q, byrow = TRUE)
-    ybar <- as.vector(Y %*% u)
-    # genetic part of the variance from power-weighted clump totals (rectified)
-    Wpow <- rectify_w(as.vector(L %*% (Y %*% upow)), plugin)
-    wexp <- numeric(length(idx)); wexp[tg] <- pmax(Wpow, 0)
-    if (!is.null(w_plugin)) wexp <- pmax(w_plugin[idx], 0)
-    G <- R %*% (wexp * R)
+    lf <- matrix(0, length(idx), K); den <- numeric(K)
     for (k in seq_len(K)) {
-      a <- annot[idx, k]
-      if (!any(a != 0)) next
-      fk <- as.vector(tapply(a, factor(clump, levels = tg), sum)) / gk
+      fk <- as.vector(tapply(annot[idx, k], factor(clump, levels = tg), sum)) / gk
       fk[is.na(fk)] <- 0
-      lf <- as.vector(crossprod(L, fk))
-      num[k] <- num[k] + sum(lf * ybar)
-      den[k] <- den[k] + sum(fk * gk)
-      vr[k] <- vr[k] + quadform_var(diag(lf, length(lf)), u, R, G, intercept, Tm)
+      lf[, k] <- as.vector(crossprod(L, fk))
+      den[k] <- sum(fk * gk)
     }
+    blocks[[length(blocks) + 1]] <- list(idx = idx, R = R, L = L, tg = tg, lf = lf,
+                                         den = den, Rh = psd_factor(R))
   }
-  E <- num / den
-  se <- sqrt(vr) / den
-  contrast <- any(u < 0)
-  z <- if (contrast) E / se else (E - 1) / se
-  data.frame(annotation = colnames(annot) %||% seq_len(K),
-             size = colSums(annot), E = E, se = se, z = z,
-             p = 2 * stats::pnorm(-abs(z)))
+  # statistic for one set of Z-scores: numerators and variances summed over blocks
+  stat <- function(Zs) {
+    num <- vr <- den <- numeric(K)
+    for (bl in blocks) {
+      Y <- Zs[bl$idx, , drop = FALSE]^2 - matrix(Cd, length(bl$idx), q, byrow = TRUE)
+      ybar <- as.vector(Y %*% u)
+      R <- bl$R
+      if (!is.null(w_plugin)) {
+        wexp <- pmax(w_plugin[bl$idx], 0)
+      } else {
+        Wpow <- pmax(rectify_w(as.vector(bl$L %*% (Y %*% upow)), plugin), 0)
+        wexp <- numeric(length(bl$idx)); wexp[bl$tg] <- Wpow
+      }
+      G <- R %*% (wexp * R)
+      if (variance == "debiased" && is.null(w_plugin)) {
+        # Cov of the power-weighted clump totals (S7.4a, item 1)
+        Vy <- 2 * (cp[1] * R^2 + 2 * cp[2] * R * G + cp[3] * G^2)
+        LT <- bl$L
+        CovW <- LT %*% Vy %*% t(LT)
+        Rt <- R[, bl$tg, drop = FALSE]
+      }
+      for (k in seq_len(K)) {
+        a <- bl$lf[, k]
+        if (!any(a != 0)) next
+        num[k] <- num[k] + sum(a * ybar)
+        den[k] <- den[k] + bl$den[k]
+        AR <- a * R; AG <- a * G
+        tRR <- sum(AR * t(AR)); tRG <- sum(AR * t(AG)); tGG <- sum(AG * t(AG))
+        if (variance == "debiased" && is.null(w_plugin)) {
+          RAR <- crossprod(Rt, a * Rt)
+          tGG <- max(tGG - sum(CovW * RAR^2), 0)
+        }
+        vr[k] <- vr[k] + 2 * (tRR * cu[1] + 2 * tRG * cu[2] + tGG * cu[3])
+      }
+    }
+    E <- num / den
+    se <- sqrt(vr) / den
+    list(E = E, se = se, z = if (contrast) E / se else (E - 1) / se)
+  }
+  st <- stat(Z)
+  out <- data.frame(annotation = colnames(annot) %||% seq_len(K),
+                    size = colSums(annot), E = st$E, se = st$se, z = st$z,
+                    p = 2 * stats::pnorm(-abs(st$z)))
+  if (contrast && n_boot > 0) {
+    # H0 fit: pooled, clipped power-weighted clump totals per block
+    Th <- psd_factor(Tm); Ch <- psd_factor(intercept)
+    Gh <- lapply(blocks, function(bl) {
+      Y <- Z[bl$idx, , drop = FALSE]^2 - matrix(Cd, length(bl$idx), q, byrow = TRUE)
+      W <- pmax(rectify_w(as.vector(bl$L %*% (Y %*% upow)), plugin), 0)
+      wexp <- numeric(length(bl$idx)); wexp[bl$tg] <- W
+      psd_factor(bl$R %*% (wexp * bl$R))
+    })
+    zb <- replicate(n_boot, {
+      Zs <- Z
+      for (i in seq_along(blocks)) {
+        bl <- blocks[[i]]; mb <- length(bl$idx)
+        Zs[bl$idx, ] <- bl$Rh %*% matrix(stats::rnorm(mb * q), mb) %*% t(Ch) +
+          Gh[[i]] %*% matrix(stats::rnorm(mb * q), mb) %*% t(Th)
+      }
+      stat(Zs)$z
+    })
+    zb <- matrix(zb, nrow = K)
+    out$p_norm <- out$p
+    out$p <- (1 + rowSums(abs(zb) >= abs(st$z))) / (n_boot + 1)
+  }
+  out
 }
 
 #' Annotation regression for LRCQ
