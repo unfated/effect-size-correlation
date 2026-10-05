@@ -50,3 +50,20 @@ test_that("rectification methods follow chapter 6.3.2", {
   expect_equal(rectify_w(w2, "C"), c(0, 0, 0.3, 1))
   expect_equal(rectify_w(c(1, 2), "A"), c(1, 2))
 })
+
+test_that("tag-set LRCQ returns one calibrated estimate per tag in tight LD", {
+  set.seed(22)
+  blocks <- make_ld_ar1(rep(40, 3), 0.95); ld <- ld_from_blocks(blocks); m <- ld$m
+  w <- make_w(m, 0.2); q <- 20; g <- make_gcov(q, h2 = rep(0.3, q))$gcov; n <- rep(3e5, q)
+  est <- ses <- NULL
+  for (r in 1:60) {
+    sim <- simulate_lrcpq(blocks, n = n, w = w, gcov = g, M = 2e4)
+    f <- lrcq(sim$Z, ld, n, g, 2e4, method = "ols", tag_r2 = 0.5)
+    est <- rbind(est, f$w_raw); ses <- rbind(ses, f$se)
+  }
+  tg <- which(!is.na(est[1, ]))
+  expect_lt(length(tg), m / 3)
+  expect_true(all(f$tag[tg] == tg))
+  ratio <- colMeans(ses[, tg]) / apply(est[, tg], 2, sd)
+  expect_gt(median(ratio), 0.8); expect_lt(median(ratio), 1.25)
+})
