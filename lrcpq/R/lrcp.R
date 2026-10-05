@@ -62,6 +62,11 @@ screen_snps <- function(w, threshold = 0.5, z = NULL, z_min = -Inf) {
 #' @param pair_sum See [sigma_w()].
 #' @param N_ref Reference panel size (r-squared bias correction for the
 #'   variance terms).
+#' @param denominators Scale for \eqn{\rho}: \code{"w"} uses the supplied
+#'   enrichment; \code{"R"} re-estimates the candidates' variances with the
+#'   same R-projection as the numerator ([local_variance()]), which keeps
+#'   \eqn{|\hat\rho| \le 1} meaningful when candidates are tags in tight LD
+#'   (theory supplement S4.7).
 #' @return List with \code{rho} (p1-by-p2 estimates), \code{se}, \code{z},
 #'   and the screened indices.
 #' @export
@@ -69,16 +74,24 @@ lrcp_distal <- function(Z1, Z2, R1, R2, w1, w2, n, gcov, M, intercept = NULL,
                         S1 = which(w1 > 0), S2 = which(w2 > 0),
                         trait_pairs = c("same", "all"),
                         method = c("gls", "ols", "wls"), ridge = 0,
-                        pair_sum = c("once", "chapter"), N_ref = Inf) {
+                        pair_sum = c("once", "chapter"), N_ref = Inf,
+                        denominators = c("w", "R")) {
   trait_pairs <- match.arg(trait_pairs)
   method <- match.arg(method)
   pair_sum <- match.arg(pair_sum)
+  denominators <- match.arg(denominators)
   Z1 <- as.matrix(Z1); Z2 <- as.matrix(Z2)
   R1 <- as.matrix(R1); R2 <- as.matrix(R2)
   q <- ncol(Z1)
   if (is.null(dim(gcov))) gcov <- diag(gcov, q)
   if (is.null(intercept)) intercept <- diag(q)
   if (is.null(dim(intercept))) intercept <- diag(intercept, q)
+  if (denominators == "R") {
+    w1[S1] <- local_variance(Z1, R1, S1, n, gcov, M, intercept)
+    w2[S2] <- local_variance(Z2, R2, S2, n, gcov, M, intercept)
+    if (any(w1[S1] <= 0) || any(w2[S2] <= 0))
+      warning("non-positive R-projected variance for some candidates; rho for them is not defined")
+  }
   f <- if (pair_sum == "once") 1 else 2
   w1 <- pmax(w1, 0); w2 <- pmax(w2, 0)
   A1 <- R1[, S1, drop = FALSE] %*% diag(sqrt(w1[S1]), length(S1))
@@ -155,12 +168,15 @@ lrcp_distal <- function(Z1, Z2, R1, R2, w1, w2, n, gcov, M, intercept = NULL,
 #' independent Gaussian vectors with covariance
 #' \eqn{\lambda_t R S_w R + R}, so the exact log-likelihood costs q Cholesky
 #' factorisations. The cross-region correlations \eqn{\rho_{ij}} of screened
-#' SNPs are estimated by BFGS with an analytic gradient; \code{w} is held
-#' at its stage-3 value and within-region correlation at 0.
+#' SNPs are estimated by BFGS with an analytic gradient over a parameterisation
+#' that keeps \eqn{R_\beta} positive semi-definite (spectral norm of the
+#' cross block below 1); \code{w} is held at its stage-3 value and
+#' within-region correlation at 0.
 #'
 #' @inheritParams lrcp_distal
 #' @param start Starting values (p1-by-p2), default the OLS estimate.
-#' @param bound Bound on \eqn{|\rho|}, enforced by \eqn{\rho = b \tanh(\theta)}.
+#' @param bound Bound on the spectral norm of the cross-region block used to
+#'   rescale an infeasible starting value.
 #' @return List with \code{rho}, \code{se} (inverse observed information from
 #'   a numerical Hessian of the analytic gradient), \code{z}, \code{loglik},
 #'   \code{loglik0} (at \eqn{\rho = 0}) and the likelihood-ratio statistic
@@ -224,18 +240,38 @@ lrcp_mle <- function(Z1, Z2, R1, R2, w1, w2, n, gcov, M, intercept = NULL,
     start <- lrcp_distal(Z1, Z2, R1, R2, w1, w2, n, gcov, M, intercept, S1, S2,
                          trait_pairs = "all", pair_sum = pair_sum)$rho
   }
-  # unconstrained parameterisation rho = bound * tanh(theta); BFGS copes with
-  # the occasional non-positive-definite trial point better than L-BFGS-B
-  start <- pmin(pmax(start, -0.9 * bound), 0.9 * bound)
-  to_rho <- function(th) bound * tanh(th)
-  fn <- function(th) nll_grad(to_rho(th), FALSE)
-  gr <- function(th) {
-    rho <- to_rho(th)
-    nll_grad(rho, TRUE)$gr * (bound - rho^2 / bound)
+  # Positive-definiteness: with within-region R_beta = I, the screened block
+  # [[I, P], [P', I]] is PSD iff ||P||_2 <= 1. Optimise over unconstrained K
+  # with P = K (I + K'K)^{-1/2}, a bijection onto the open unit ball.
+  msqrt_inv <- function(S) {
+    e <- eigen(S, symmetric = TRUE)
+    e$vectors %*% (t(e$vectors) / sqrt(pmax(e$values, 1e-12)))
   }
-  opt <- stats::optim(atanh(as.vector(start) / bound), fn, gr, method = "BFGS",
-                      control = list(maxit = 500, reltol = 1e-10))
-  opt$par <- to_rho(opt$par)
+  to_P <- function(k) {
+    K <- matrix(k, p1, p2)
+    as.vector(K %*% msqrt_inv(diag(p2) + crossprod(K)))
+  }
+  to_K <- function(P) {
+    nrm <- if (length(P)) max(svd(P)$d) else 0
+    if (nrm >= bound) P <- P * bound / nrm * 0.9
+    as.vector(P %*% msqrt_inv(diag(p2) - crossprod(P)))
+  }
+  fn <- function(k) nll_grad(to_P(k), FALSE)
+  gr <- function(k) {
+    P <- to_P(k)
+    g <- nll_grad(P, TRUE)$gr
+    # chain rule through the small matrix map by central differences
+    J <- vapply(seq_along(k), function(j) {
+      e <- numeric(length(k)); e[j] <- 1e-6
+      (to_P(k + e) - to_P(k - e)) / 2e-6
+    }, numeric(length(k)))
+    as.vector(crossprod(J, g))
+  }
+  k0 <- to_K(matrix(start, p1, p2))
+  if (fn(k0) >= 1e10) k0 <- numeric(p1 * p2)
+  opt <- stats::optim(k0, fn, gr, method = "BFGS",
+                      control = list(maxit = 1000, reltol = 1e-12))
+  opt$par <- to_P(opt$par)
   par <- opt$par
   # numerical Hessian from the analytic gradient
   h <- 1e-4
@@ -305,4 +341,29 @@ lrcp_local <- function(Z, R, w, n, gcov, M, intercept = NULL, S = which(w > 0),
   if (ridge > 0) XtX <- XtX + diag(ridge * mean(diag(XtX)), ncol(X))
   rho <- solve(XtX, crossprod(X, as.vector(Ybar)))
   data.frame(i = pr[1, ], j = pr[2, ], rho = as.vector(rho))
+}
+
+#' R-projected local variance of candidate SNPs
+#'
+#' \eqn{\hat V_T = R_{TT}^{-1}[\sum_a s_a (z_{Ta} z_{Ta}' - C_{aa} R_{TT})]
+#' R_{TT}^{-1} / \|s\|^2}; its diagonal estimates the candidates'
+#' enrichment on the same projection used by the GLS numerator of
+#' [lrcp_distal()].
+#' @param Z,R Region Z-scores and LD.
+#' @param S Candidate indices.
+#' @inheritParams lrcp_distal
+#' @return Length-|S| vector.
+#' @export
+local_variance <- function(Z, R, S, n, gcov, M, intercept = NULL) {
+  Z <- as.matrix(Z)
+  q <- ncol(Z)
+  if (is.null(dim(gcov))) gcov <- diag(gcov, q)
+  if (is.null(intercept)) intercept <- diag(q)
+  if (is.null(dim(intercept))) intercept <- diag(intercept, q)
+  s <- n * diag(gcov) / M
+  RT <- as.matrix(R)[S, S, drop = FALSE]
+  ZT <- Z[S, , drop = FALSE]
+  Ybar <- (ZT %*% (s * t(ZT)) - sum(s * diag(intercept)) * RT) / sum(s^2)
+  Ri <- solve(RT)
+  diag(Ri %*% Ybar %*% Ri)
 }

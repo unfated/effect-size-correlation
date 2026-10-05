@@ -21,7 +21,8 @@ lrcp_distal(
   method = c("gls", "ols", "wls"),
   ridge = 0,
   pair_sum = c("once", "chapter"),
-  N_ref = Inf
+  N_ref = Inf,
+  denominators = c("w", "R")
 )
 }
 \arguments{
@@ -60,6 +61,12 @@ normal-equation matrix.}
 
 \item{N_ref}{Reference panel size (r-squared bias correction for the
 variance terms).}
+
+\item{denominators}{Scale for \eqn{\rho}: \code{"w"} uses the supplied
+enrichment; \code{"R"} re-estimates the candidates' variances with the
+same R-projection as the numerator ([local_variance()]), which keeps
+\eqn{|\hat\rho| \le 1} meaningful when candidates are tags in tight LD
+(theory supplement S4.7).}
 }
 \value{
 List with \code{rho} (p1-by-p2 estimates), \code{se}, \code{z},

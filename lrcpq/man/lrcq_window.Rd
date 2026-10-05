@@ -19,7 +19,9 @@ lrcq_window(
   se = c("model", "none"),
   max_iter = 20,
   tol = 1e-06,
-  w_plugin = NULL
+  w_plugin = NULL,
+  tags = NULL,
+  psd = TRUE
 )
 }
 \arguments{
@@ -63,9 +65,19 @@ Isserlis covariance across SNPs and traits; \code{"none"}.}
 \item{w_plugin}{Enrichment used to evaluate the SE formula; default is
 \code{w_hat} rectified by method A, which keeps the SE calibrated
 (raw plug-in overstates SEs by roughly 20\% when most SNPs are null).}
+
+\item{tags}{Optional indices of tag SNPs carrying the parameters
+(clump-level LRCQ). Responses still come from all SNPs; the estimand of
+each tag is its clump total \eqn{w_T + \Pi w_{\bar T}},
+\eqn{\Pi = (D_{\cdot T}'D_{\cdot T})^{-1}D_{\cdot T}'D_{\cdot \bar T}}
+(theory supplement S3.11). Use with [prune_ld()] at \eqn{r^2 < 0.5}.}
+
+\item{psd}{Project \eqn{D} onto the PSD cone (clip negative eigenvalues)
+before solving.}
 }
 \value{
-List with \code{w}, \code{se}, \code{iter}.
+List with \code{w} and \code{se} (one per tag), \code{iter},
+  \code{tags}.
 }
 \description{
 LRCQ enrichment estimate within one LD window

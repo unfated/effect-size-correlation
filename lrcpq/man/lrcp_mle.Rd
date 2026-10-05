@@ -39,7 +39,8 @@ rectified, or true values in a simulation).}
 
 \item{start}{Starting values (p1-by-p2), default the OLS estimate.}
 
-\item{bound}{Bound on \eqn{|\rho|}, enforced by \eqn{\rho = b \tanh(\theta)}.}
+\item{bound}{Bound on the spectral norm of the cross-region block used to
+rescale an infeasible starting value.}
 }
 \value{
 List with \code{rho}, \code{se} (inverse observed information from
@@ -54,6 +55,8 @@ diagonalising the q-by-q matrices \eqn{c} and \eqn{C} turns this into q
 independent Gaussian vectors with covariance
 \eqn{\lambda_t R S_w R + R}, so the exact log-likelihood costs q Cholesky
 factorisations. The cross-region correlations \eqn{\rho_{ij}} of screened
-SNPs are estimated by BFGS with an analytic gradient; \code{w} is held
-at its stage-3 value and within-region correlation at 0.
+SNPs are estimated by BFGS with an analytic gradient over a parameterisation
+that keeps \eqn{R_\beta} positive semi-definite (spectral norm of the
+cross block below 1); \code{w} is held at its stage-3 value and
+within-region correlation at 0.
 }
