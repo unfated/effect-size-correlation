@@ -29,7 +29,7 @@ one_rep <- function(q = 300, rho = 0.5, ld_r = 0.6, M = 2e5) {
   f1 <- lrcq(Z1, ld_from_blocks(blocks[1:2]), sim$n, gc$gcov, M = M, intercept = C, method = "wls", rectify = "C")
   f2 <- lrcq(Z2, ld_from_blocks(blocks[3:4]), sim$n, gc$gcov, M = M, intercept = C, method = "wls", rectify = "C")
   wh1 <- f1$w; wh2 <- f2$w
-  rows <- list(); if (nzchar(Sys.getenv("DBG"))) { print(pr); print(screen_snps(wh1, 0.5)); print(screen_snps(wh2, 0.5)); print(which(w>0)) }
+  rows <- list()
   for (t in ths) for (pr_r2 in c(1, 0.5)) {
     S1 <- screen_snps(wh1, t); S2 <- screen_snps(wh2, t)
     if (pr_r2 < 1) { S1 <- prune(S1, wh1, R1, pr_r2); S2 <- prune(S2, wh2, R2, pr_r2) }
