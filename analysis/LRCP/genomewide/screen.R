@@ -13,6 +13,11 @@ cand <- read.delim(CAND)
 Z <- as.matrix(read.delim(gzfile(ZF), row.names = 1, check.names = FALSE))
 stopifnot(identical(rownames(Z), cand$ID)); Z[is.na(Z)] <- 0
 tr <- read.delim(file.path(L2, "panukb.traits.tsv")); stopifnot(identical(tr$trait_id, colnames(Z)))
+# robustness (step 14): optional trait subset, TRAITS=indep keeps the 150 'indep' traits of trait-list.tsv
+if (Sys.getenv("TRAITS") == "indep") {
+  tl <- read.delim(file.path(L2, "trait-list.tsv")); ind <- tl$trait_id[tl$indep %in% c(TRUE, "True", 1)]
+  k <- tr$trait_id %in% ind; Z <- Z[, k]; tr <- tr[k, ]; message("trait subset indep: ", sum(k))
+}
 psd <- function(A, eps = 1e-6) { e <- eigen((A + t(A)) / 2, symmetric = TRUE)
   e$vectors %*% (pmax(e$values, eps * max(e$values)) * t(e$vectors)) }
 # plug-ins as in targeted/stage3.R (PLUGIN=ldsc): LRCQ genome-wide cross-trait LDSC
