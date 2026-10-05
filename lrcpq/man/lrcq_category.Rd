@@ -45,15 +45,17 @@ as given, without debiasing.}
 
 \item{n_boot}{For contrasts: number of parametric-bootstrap draws for the
 studentised contrast under \eqn{H_0} (S7.4a; default 200 for contrasts,
-0 to skip). When it runs, \code{p} is the bootstrap p-value and the
-normal-reference p-value is kept as \code{p_norm}. Draws
+0 to skip). When it runs, \code{p} is the bootstrap p-value (the test
+to report) and the normal-reference value is kept as
+\code{p_norm_diagnostic}, a diagnostic only: the debiased plug-in is
+not a safe substitute for the bootstrap (S7.4a). Draws
 \eqn{Z^* \sim N(0, \Gamma\otimes R + T\otimes \hat G_+)} from the pooled,
 clipped fit and recomputes the whole statistic, plug-in included.}
 }
 \value{
 Data frame with one row per annotation: \code{size}, \code{E},
   \code{se}, \code{z} (for \eqn{E = 1}, or 0 for a contrast), \code{p},
-  and \code{p_norm} when the bootstrap ran.
+  and \code{p_norm_diagnostic} when the bootstrap ran.
 }
 \description{
 Clump-level, model-free category enrichment (theory supplement S7.2a):
@@ -87,7 +89,8 @@ phenotype-category contrast \eqn{\hat E_c^{(g_1)} - \hat E_c^{(g_2)}}
   self-normalising, so the normal-reference test is conservative (in a
   4-cluster, full-overlap simulation the naive plug-in gave null SD 0.81
   and no rejections at 5\%; the debiased plug-in is closer). The
-  bootstrap p-value is calibrated (theory supplement check C3; in the
+  debiased plug-in is used only as the bootstrap's studentising
+  denominator. The bootstrap p-value is calibrated (theory supplement check C3; in the
   package's own check with q = 40 traits in 4 clusters and 6 dominant
   loci, type I error 0.040 at 5\% against 0.030 naive and 0.073 debiased)
   and is the default contrast test.

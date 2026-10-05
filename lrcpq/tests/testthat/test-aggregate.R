@@ -71,3 +71,25 @@ test_that("category contrast: debiased plug-in and bootstrap are calibrated", {
   expect_lt(abs(sd(r[, 1]) - 1), 0.2)
   expect_lt(abs(mean(r[, 2] <= 0.1) - 0.1), 0.08)
 })
+
+test_that("class null is calibrated for non-separable loci; model null is not", {
+  set.seed(55)
+  q <- 60; n <- rep(3e5, q); M <- 1e6
+  gc <- make_gcov(q, h2 = rep(0.3, q), type = "cluster", rg = 0.3, n_clusters = 12)
+  C <- make_intercept(q, 1, 0.2); Tm <- scale_matrix(n, gc$gcov, M)
+  L <- matrix(rnorm(q * 2), q); Vc <- L %*% t(L); Vc <- Vc * sum(diag(Tm)) / sum(diag(Vc))
+  pf <- lrcpq:::psd_factor; Ch <- pf(C); Vh <- pf(Vc); w <- 30
+  draw <- function(k) t(Vh %*% matrix(rnorm(q * k), q)) * sqrt(w) + t(Ch %*% matrix(rnorm(q * k), q))
+  cc <- class_covariance(draw(40), rep(1, 40), rep(w, 40), C)
+  expect_lt(cc$q_eff, 3)
+  r <- t(replicate(300, {
+    xa <- draw(1); xb <- draw(1)
+    a <- list(xa, xb, matrix(1), matrix(1), n = n, gcov = gc$gcov, M = M, intercept = C,
+              GA = matrix(w), GB = matrix(w), n_sim = 0)
+    c(do.call(lrcp_gene, a)$z,
+      suppressWarnings(do.call(lrcp_gene, c(a, list(VclassA = cc$V, VclassB = cc$V))))$z)
+  }))
+  expect_gt(mean(abs(r[, 1]) > 1.96), 0.25)
+  expect_lt(mean(abs(r[, 2]) > 1.96), 0.10)
+  expect_equal(profile_classes(rbind(c(1, 2, 3), c(-1, -2, -3.1), c(1, -2, 1))), c(1, 1, 2))
+})
