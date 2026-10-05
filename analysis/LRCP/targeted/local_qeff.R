@@ -3,6 +3,7 @@
 args <- commandArgs(TRUE); IN <- args[1]; OUT <- args[2]
 s3 <- readRDS(file.path(OUT, "stage3.rds")); w <- s3$fit$w
 Z <- as.matrix(read.delim(gzfile(file.path(IN, "Z.tsv.gz")), row.names = 1, check.names = FALSE))
+if (!is.null(s3$keys)) Z <- Z[, s3$keys]
 nm <- c(`1` = "PCSK9", `2` = "APOB", `5` = "HMGCR", `12` = "MDM2", `17` = "TP53", `19` = "LDLR")
 qe <- function(S) sum(diag(S))^2 / sum(S^2)
 res <- do.call(rbind, lapply(names(nm), function(c) {

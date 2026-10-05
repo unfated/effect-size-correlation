@@ -6,6 +6,7 @@ suppressPackageStartupMessages(library(lrcpq))
 args <- commandArgs(TRUE); IN <- args[1]; OUT <- args[2]; z_min <- as.numeric(args[3])
 s3 <- readRDS(file.path(OUT, "stage3.rds")); w <- s3$fit$w
 Z <- as.matrix(read.delim(gzfile(file.path(IN, "Z.tsv.gz")), row.names = 1, check.names = FALSE))
+if (!is.null(s3$keys)) Z <- Z[, s3$keys]
 L <- ld_from_windows(file.path(IN, "ld"), N_ref = 337000)
 TARGET <- c(TP53 = "17:7571752:T:G", MDM2 = "12:69216521:T:G", PCSK9 = "1:55505647:G:T",
             LDLR = "19:11202306:G:T", HMGCR = "5:74656539:T:C", APOB = "2:21263900:G:A")

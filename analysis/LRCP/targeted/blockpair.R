@@ -6,6 +6,7 @@ suppressPackageStartupMessages(library(lrcpq))
 args <- commandArgs(TRUE); IN <- args[1]; OUT <- args[2]; z_min <- as.numeric(args[3])
 s3 <- readRDS(file.path(OUT, "stage3.rds")); w <- s3$fit$w
 Z <- as.matrix(read.delim(gzfile(file.path(IN, "Z.tsv.gz")), row.names = 1, check.names = FALSE))
+if (!is.null(s3$keys)) Z <- Z[, s3$keys]
 L <- ld_from_windows(file.path(IN, "ld"), N_ref = 337000)
 TARGET <- c(PCSK9 = "1:55505647:G:T", APOB = "2:21263900:G:A", HMGCR = "5:74656539:T:C",
             MDM2 = "12:69216521:T:G", TP53 = "17:7571752:T:G", LDLR = "19:11202306:G:T")
@@ -17,6 +18,7 @@ cand <- lapply(names(TARGET), function(nm) {
 }); names(cand) <- names(TARGET)
 # trait-cluster jackknife (20 clusters on |C_hat|, delete one cluster) for the named-variant burden
 Ch <- as.matrix(read.delim(gzfile(file.path(IN, "C_hat.tsv.gz")), row.names = 1, check.names = FALSE))
+if (!is.null(s3$keys)) Ch <- Ch[s3$keys, s3$keys]
 cl <- cutree(hclust(as.dist(1 - abs(Ch)), "average"), k = 20)
 s_tr <- s3$n * diag(s3$gcov) / s3$M
 jack <- function(x, y) {

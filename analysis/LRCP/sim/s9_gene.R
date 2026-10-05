@@ -17,9 +17,9 @@ one <- function(q, rho) {
   R1 <- as.matrix(bdiag(blocks[1:2])); R2 <- as.matrix(bdiag(blocks[3:4])); Z1 <- sim$Z[reg1, ]; Z2 <- sim$Z[reg2, ]
   S1 <- which(w[reg1] > 0); S2 <- which(w[reg2] > 0)
   vA <- as.numeric(S1 %in% gA); vB <- as.numeric(S2 %in% (gB - 200))
-  tag <- suppressWarnings(lrcp_gene(Z1[S1, ], Z2[S2, ], R1[S1, S1], R2[S2, S2], n = sim$n, gcov = gc$gcov, M = 2e5, intercept = C, n_sim = 0))
+  tag <- suppressWarnings(lrcp_gene(Z1[S1, ], Z2[S2, ], R1[S1, S1], R2[S2, S2], n = sim$n, gcov = gc$gcov, M = 2e5, intercept = C, n_sim = 0, n_boot = 400))
   gen <- suppressWarnings(lrcp_gene(Z1[S1, ], Z2[S2, ], R1[S1, S1], R2[S2, S2], VA = cbind(vA), VB = cbind(vB),
-                                    n = sim$n, gcov = gc$gcov, M = 2e5, intercept = C, n_sim = 0))
+                                    n = sim$n, gcov = gc$gcov, M = 2e5, intercept = C, n_sim = 0, n_boot = 400))
   pp <- tag$p[S1 %in% gA, S2 %in% (gB - 200)]
   # oracle genetic parts including the within-gene correlation (local rho != 0)
   Sw <- sqrt(w) * t(sqrt(w) * Rb)
