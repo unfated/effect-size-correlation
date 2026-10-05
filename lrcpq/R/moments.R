@@ -127,3 +127,33 @@ expected_cross_element <- function(k, l, a, b, R, w, Rb, n, gcov, M,
   }
   cab * (first + pair_factor * second) + intercept[a, b] * R[k, l]
 }
+
+#' Expected cross-trait covariance of one SNP's Z-scores
+#'
+#' \eqn{M_k = c\,(R S_w R)_{kk} + C}, the q-by-q covariance of
+#' \eqn{(z_{k1}, \dots, z_{kq})}. By Isserlis' theorem
+#' \eqn{Cov(z_{ka}^2, z_{kb}^2) = 2 M_{k,ab}^2} and, for SNPs without LD,
+#' \eqn{Cov(z_{ka} z_{la}, z_{kb} z_{lb}) = M_{k,ab} M_{l,ab}}. The effective
+#' number of traits for a distal pair is
+#' \eqn{q_{eff} = tr(M_k) tr(M_l) / tr(M_k M_l)}.
+#'
+#' @param k SNP index (or vector of indices) within \code{R}.
+#' @inheritParams expected_zz
+#' @return A q-by-q matrix, or a list of them when \code{k} has length > 1.
+#' @export
+expected_trait_cov <- function(k, R, w, Rb = NULL, n, gcov, M, intercept = NULL,
+                               pair_sum = c("once", "chapter")) {
+  q <- length(n)
+  if (is.null(intercept)) intercept <- diag(q)
+  if (is.null(dim(intercept))) intercept <- diag(intercept, q)
+  cmat <- scale_matrix(n, gcov, M)
+  R <- as.matrix(R)
+  g <- rowSums((R[k, , drop = FALSE] %*% sigma_w(w, Rb, pair_sum)) * R[k, , drop = FALSE])
+  out <- lapply(g, function(gk) gk * cmat + intercept)
+  if (length(k) == 1) out[[1]] else out
+}
+
+#' Effective number of traits for a SNP pair
+#' @param Mk,Ml Trait covariance matrices from [expected_trait_cov()].
+#' @export
+q_eff <- function(Mk, Ml = Mk) sum(diag(Mk)) * sum(diag(Ml)) / sum(Mk * Ml)
