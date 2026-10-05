@@ -159,3 +159,77 @@ ld_from_plink <- function(prefixes, snps = NULL, blocks = ld_blocks_eur(),
   rownames(snp) <- NULL
   new_ld(get, nrow(bim), bim$block, snp, N)
 }
+
+#' LD reference from a directory of overlapping LD windows
+#'
+#' Loads the window format produced by the LRCQ analysis scripts from the
+#' UK Biobank in-sample LD release (PolyFun, \code{broad-alkesgroup-ukbb-ld}):
+#' one \code{<win>.snps.tsv} (with a \code{chr:pos:ref:alt} id column or
+#' \code{chr}/\code{pos} columns) and one dense float32 \code{<win>.R.f32}
+#' per window, windows named \code{chr<c>_<start>_<end>}. Each window's core
+#' is its middle \code{step} bp (edge windows extend their core to the
+#' chromosome ends), so cores tile the genome.
+#'
+#' @param dir Directory holding the window files.
+#' @param step Window step in bp (core length).
+#' @param id_col Name of the SNP id column in the \code{.snps.tsv} files.
+#' @return List with \code{ld} (an \code{lrcpq_ld} over the union of SNPs,
+#'   whose \code{get()} reads the window covering the request) and
+#'   \code{windows} (pass to \code{lrcq(windows = )}).
+#' @export
+ld_from_windows <- function(dir, step = 2e6, id_col = "id") {
+  files <- list.files(dir, pattern = "\\.snps\\.tsv$", full.names = TRUE)
+  if (!length(files)) stop("no *.snps.tsv files in ", dir)
+  nm <- sub("\\.snps\\.tsv$", "", basename(files))
+  parts <- regmatches(nm, regexec("chr([0-9]+)_([0-9]+)_([0-9]+)", nm))
+  meta <- data.frame(name = nm, file = files,
+                     chr = as.integer(vapply(parts, `[`, "", 2)),
+                     start = as.numeric(vapply(parts, `[`, "", 3)),
+                     end = as.numeric(vapply(parts, `[`, "", 4)))
+  meta <- meta[order(meta$chr, meta$start), ]
+  tabs <- lapply(meta$file, function(f) {
+    t <- utils::read.delim(f, stringsAsFactors = FALSE)
+    if (!id_col %in% names(t)) {
+      t[[id_col]] <- paste(t$chr, t$pos, sep = ":")
+    }
+    if (!"pos" %in% names(t)) {
+      t$chr <- as.integer(sub(":.*", "", t[[id_col]]))
+      t$pos <- as.integer(sub("^[^:]*:([0-9]+).*", "\\1", t[[id_col]]))
+    }
+    t
+  })
+  all_snp <- unique(do.call(rbind, lapply(tabs, function(t) t[, c(id_col, "chr", "pos")])))
+  all_snp <- all_snp[order(all_snp$chr, all_snp$pos), ]
+  rownames(all_snp) <- NULL
+  ids <- all_snp[[id_col]]
+  flank <- (meta$end - meta$start - step) / 2
+  windows <- vector("list", nrow(meta))
+  for (k in seq_len(nrow(meta))) {
+    first <- k == 1 || meta$chr[k - 1] != meta$chr[k]
+    last <- k == nrow(meta) || meta$chr[k + 1] != meta$chr[k]
+    lo <- if (first) -Inf else meta$start[k] + flank[k]
+    hi <- if (last) Inf else meta$end[k] - flank[k]
+    idx <- match(tabs[[k]][[id_col]], ids)
+    pos <- all_snp$pos[idx]
+    windows[[k]] <- list(idx = idx, core = which(pos >= lo & pos < hi),
+                         file = sub("\\.snps\\.tsv$", ".R.f32", meta$file[k]))
+  }
+  cache <- new.env(); cache$k <- 0L
+  get <- function(idx) {
+    k <- which(vapply(windows, function(w) all(idx %in% w$idx), TRUE))[1]
+    if (is.na(k)) stop("no single LD window covers the requested SNPs")
+    if (cache$k != k) {
+      p <- length(windows[[k]]$idx)
+      con <- file(windows[[k]]$file, "rb")
+      v <- readBin(con, "numeric", n = p * p, size = 4)
+      close(con)
+      cache$R <- matrix(v, p, p)
+      cache$k <- k
+    }
+    j <- match(idx, windows[[k]]$idx)
+    cache$R[j, j, drop = FALSE]
+  }
+  block <- cumsum(c(TRUE, diff(all_snp$chr) != 0))
+  list(ld = new_ld(get, nrow(all_snp), block, all_snp, N = Inf),
+       windows = windows)
+}
