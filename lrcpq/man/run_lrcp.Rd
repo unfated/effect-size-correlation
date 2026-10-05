@@ -21,6 +21,7 @@ run_lrcp(
   class_null = FALSE,
   min_abs_cor = 0.5,
   min_class_loci = 5,
+  n_boot = 1000,
   mle = FALSE
 )
 }
@@ -50,10 +51,15 @@ chromosome.}
 \item{min_abs_cor, min_class_loci}{Class definition: see
 [profile_classes()]; minimum held-out loci per class.}
 
+\item{n_boot}{Conditional bootstrap draws for the conditional test
+([lrcp_gene()], S8.2a; 0 for the normal reference). Ignored with the
+class null, which uses the normal reference.}
+
 \item{mle}{Also run [lrcp_mle()] per window pair.}
 }
 \value{
-Data frame with one row per tag pair.
+Data frame with one row per tag pair; \code{p} is the bootstrap
+  p-value (larger of both orientations) for the conditional test.
 }
 \description{
 Screens tags on stage-3 enrichment, then estimates genetic-effect
