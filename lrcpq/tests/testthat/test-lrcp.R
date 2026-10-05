@@ -90,3 +90,16 @@ test_that("pipelines run end to end and rank true pairs first", {
   top <- fp[order(fp$p), ][1:2, ]
   expect_setequal(paste(top$snp1, top$snp2), c("10 160", "60 210"))
 })
+
+test_that("plug-in LRCP SE is calibrated at large rho", {
+  set.seed(14)
+  s <- sim_two_regions(q = 30, rho = c(0.9, 0.3, 0))
+  est <- se <- NULL
+  for (r in 1:150) {
+    sim <- simulate_lrcpq(s$blocks, n = s$n, w = s$w, Rb = s$Rb, gcov = s$gcov, M = s$M)
+    f <- lrcp_distal(sim$Z[1:30, ], sim$Z[31:60, ], s$blocks[[1]], s$blocks[[2]],
+                     s$w[1:30], s$w[31:60], s$n, s$gcov, s$M, se_type = "plugin")
+    est <- rbind(est, diag(f$rho)); se <- rbind(se, diag(f$se))
+  }
+  expect_lt(abs(mean(se[, 1]) / sd(est[, 1]) - 1), 0.15)
+})

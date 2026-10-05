@@ -22,7 +22,8 @@ lrcp_distal(
   ridge = 0,
   pair_sum = c("once", "chapter"),
   N_ref = Inf,
-  denominators = c("w", "R")
+  denominators = c("w", "R"),
+  se_type = c("null", "plugin")
 )
 }
 \arguments{
@@ -67,6 +68,15 @@ enrichment; \code{"R"} re-estimates the candidates' variances with the
 same R-projection as the numerator ([local_variance()]), which keeps
 \eqn{|\hat\rho| \le 1} meaningful when candidates are tags in tight LD
 (theory supplement S4.7).}
+
+\item{se_type}{\code{"null"} (default): SEs under \eqn{\rho = 0}, the
+right reference for testing. \code{"plugin"} (GLS and OLS): adds the
+Isserlis term from the cross-region covariance at \eqn{\hat\rho},
+\eqn{tr(KcKc)/\|K\|^4 \cdot \hat\rho^2} for unit-scaled maps, which the
+null SE omits; use it for confidence intervals when \eqn{|\rho|} is large
+(in simulation the null SE understates the SD by about 25\% at
+\eqn{\rho = 0.9} with 30 traits and is accurate for
+\eqn{|\rho| \le 0.4}).}
 }
 \value{
 List with \code{rho} (p1-by-p2 estimates), \code{se}, \code{z},
