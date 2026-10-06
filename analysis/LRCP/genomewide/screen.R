@@ -12,6 +12,9 @@ L2 <- "/mnt/project-files/papers/LRCQ/results/real/"
 cand <- read.delim(CAND)
 Z <- as.matrix(read.delim(gzfile(ZF), row.names = 1, check.names = FALSE))
 stopifnot(identical(rownames(Z), cand$ID)); Z[is.na(Z)] <- 0
+# robustness (step 14): optional stricter prescreen, e.g. MAXQ=0.01 keeps tags with q_gt0 < 0.01
+if (nzchar(Sys.getenv("MAXQ"))) { k <- cand$q_gt0 < as.numeric(Sys.getenv("MAXQ")); cand <- cand[k, ]; Z <- Z[k, ]
+  message("prescreen q_gt0 < ", Sys.getenv("MAXQ"), ": ", sum(k), " tags") }
 tr <- read.delim(file.path(L2, "panukb.traits.tsv")); stopifnot(identical(tr$trait_id, colnames(Z)))
 # robustness (step 14): optional trait subset, TRAITS=indep keeps the 150 'indep' traits of trait-list.tsv
 if (Sys.getenv("TRAITS") == "indep") {
@@ -36,8 +39,8 @@ m <- nrow(Z); X <- matrix(0, m, ncol(Z)); tauR <- MG <- v <- numeric(m)
 for (win in unique(cand$window)) {
   S <- which(cand$window == win)
   sn <- read.delim(file.path(LDD, sprintf("w%s.snps.tsv", win)))
-  stopifnot(identical(sn$ID, cand$ID[S]))
-  R <- matrix(readBin(file.path(LDD, sprintf("w%s.R.f32", win)), "numeric", length(S)^2, size = 4), length(S))
+  ix <- match(cand$ID[S], sn$ID); stopifnot(!anyNA(ix))
+  R <- matrix(readBin(file.path(LDD, sprintf("w%s.R.f32", win)), "numeric", nrow(sn)^2, size = 4), nrow(sn))[ix, ix, drop = FALSE]
   Zs <- Z[S, , drop = FALSE]; Ri <- solve(R)
   G <- local_moment(Zs, R, n, gcov, M, intercept)
   X[S, ] <- Ri %*% Zs; tauR[S] <- diag(Ri); MG[S] <- diag(Ri %*% G %*% Ri)

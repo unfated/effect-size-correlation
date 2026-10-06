@@ -15,7 +15,9 @@ sc <- read.delim(gzfile(file.path(OUT, "screen_pairs_p1e-3.tsv.gz")))
 sel <- sc[sc$q_BH < 0.05 | seq_len(nrow(sc)) <= n_top, ]
 cls <- profile_classes(P$X, 0.5)
 message("profile classes: ", length(unique(cls)), "; largest ", paste(head(sort(table(cls), TRUE), 5), collapse = " "))
-getR <- function(win, k) matrix(readBin(file.path(LDD, sprintf("w%s.R.f32", win)), "numeric", k^2, size = 4), k)
+getR <- function(win, ids) { sn <- read.delim(file.path(LDD, sprintf("w%s.snps.tsv", win)))
+  ix <- match(ids, sn$ID); stopifnot(!anyNA(ix))   # LD files may hold extra tags (UKB windows overlap)
+  matrix(readBin(file.path(LDD, sprintf("w%s.R.f32", win)), "numeric", nrow(sn)^2, size = 4), nrow(sn))[ix, ix, drop = FALSE] }
 genes <- read.delim(gzfile("/mnt/project-files/papers/LRCQ/results/real/genes_all.genes.tsv.gz"))
 near <- function(id) { ch <- as.integer(sub(":.*", "", id)); bp <- as.integer(strsplit(id, ":")[[1]][2])
   g <- genes[genes$chr == ch, ]; d <- pmax(g$start - bp, bp - g$end, 0); g$gene[which.min(d)] }
@@ -23,7 +25,7 @@ set.seed(13); out <- list()
 for (r in seq_len(nrow(sel))) {
   a <- match(sel$ID1[r], cand$ID); b <- match(sel$ID2[r], cand$ID)
   A <- which(cand$window == cand$window[a]); B <- which(cand$window == cand$window[b])
-  RA <- getR(cand$window[a], length(A)); RB <- getR(cand$window[b], length(B))
+  RA <- getR(cand$window[a], cand$ID[A]); RB <- getR(cand$window[b], cand$ID[B])
   va <- cbind(as.numeric(A == a)); vb <- cbind(as.numeric(B == b))
   g <- lrcp_gene(Z[A, , drop = FALSE], Z[B, , drop = FALSE], RA, RB, va, vb, n = P$n, gcov = P$gcov, M = M,
                  intercept = P$intercept, n_boot = n_boot, n_sim = 0)
@@ -46,6 +48,6 @@ R <- do.call(rbind, out)
 # are diagnostics only (the self-normalised z* is light-tailed, software diagnostics note)
 R$p_report <- R$p_boot
 R$testable <- pmin(R$q_eff_class1, R$q_eff_class2) >= 5
-write.table(R, file.path(OUT, "confirm_top.tsv"), sep = "\t", quote = FALSE, row.names = FALSE)
+write.table(R, file.path(OUT, paste0("confirm_top", Sys.getenv("SUFFIX"), ".tsv")), sep = "\t", quote = FALSE, row.names = FALSE)
 saveRDS(cls, file.path(OUT, "profile_classes.rds"))
 print(R[, c("RSID1", "gene1", "RSID2", "gene2", "rho", "r_naive", "z", "p_boot", "boot_sd_A", "boot_sd_B", "p_report", "z_class", "p_class", "q_eff_class1", "q_eff_class2")], digits = 3)
