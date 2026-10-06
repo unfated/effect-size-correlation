@@ -3,7 +3,7 @@
 # conditional parametric bootstrap (both orientations) and with the class null of theory
 # S8.5 (profile classes over all candidate tags, class excluding the pair's windows).
 # usage: confirm.R <candidate_tags.tsv> <tagZ.tsv.gz> <ld_dir> <out_dir> <n_top> <n_boot>
-.libPaths(c("/home/user/rlib2", .libPaths()))
+.libPaths(c(Sys.getenv("RLIB", "/home/user/rlib2"), .libPaths()))
 suppressPackageStartupMessages(library(lrcpq))
 args <- commandArgs(TRUE); CAND <- args[1]; ZF <- args[2]; LDD <- args[3]; OUT <- args[4]
 n_top <- as.integer(args[5]); n_boot <- as.integer(args[6])
@@ -35,13 +35,17 @@ for (r in seq_len(nrow(sel))) {
                  M = M, intercept = P$intercept, VclassA = list(ca$V), VclassB = list(cb$V), n_boot = 0, n_sim = 0))
   out[[r]] <- data.frame(sel[r, c("ID1", "RSID1", "ID2", "RSID2", "rho", "r_naive", "z", "p", "q_BH")],
     gene1 = near(sel$ID1[r]), gene2 = near(sel$ID2[r]),
-    z_gene = g$z[1, 1], p_boot = g$p[1, 1], z_gls = g$z_gls[1, 1], R_AB = g$R_AB[1, 1],
+    z_gene = g$z[1, 1], p_boot = g$p[1, 1], p_norm = g$p_norm_diagnostic[1, 1],
+    boot_sd_A = if (is.null(g$boot_sd_A)) NA else g$boot_sd_A[1], boot_sd_B = if (is.null(g$boot_sd_B)) NA else g$boot_sd_B[1], z_gls = g$z_gls[1, 1], R_AB = g$R_AB[1, 1],
     class1 = cls[a], class2 = cls[b], q_eff_class1 = ca$q_eff, q_eff_class2 = cb$q_eff,
     n_class1 = ca$n_loci, n_class2 = cb$n_loci, z_class = gc$z[1, 1], p_class = gc$p[1, 1])
   if (r %% 10 == 0) message(r, " / ", nrow(sel))
 }
 R <- do.call(rbind, out)
+# reported P is the bootstrap P (larger of the two orientations, theory S8.2a); boot_sd_A/B
+# are diagnostics only (the self-normalised z* is light-tailed, software diagnostics note)
+R$p_report <- R$p_boot
 R$testable <- pmin(R$q_eff_class1, R$q_eff_class2) >= 5
 write.table(R, file.path(OUT, "confirm_top.tsv"), sep = "\t", quote = FALSE, row.names = FALSE)
 saveRDS(cls, file.path(OUT, "profile_classes.rds"))
-print(R[, c("RSID1", "gene1", "RSID2", "gene2", "rho", "r_naive", "z", "p_boot", "z_class", "p_class", "q_eff_class1", "q_eff_class2")], digits = 3)
+print(R[, c("RSID1", "gene1", "RSID2", "gene2", "rho", "r_naive", "z", "p_boot", "boot_sd_A", "boot_sd_B", "p_report", "z_class", "p_class", "q_eff_class1", "q_eff_class2")], digits = 3)
