@@ -46,6 +46,6 @@ mentions = set(re.findall(r"([A-Z][A-Za-z'\-]+)(?: et al\.| & [A-Z][A-Za-z'\-]+)
 missing = sorted(f"{a} {y}" for a, y in mentions if (a, y) not in refs and a != "Consortium" and 1990 < int(y) < 2030)
 out = text + "\n\n## References\n\n" + "\n".join(f"{i}. {r}" for i, r in enumerate(reflist, 1)) + "\n"
 hdr = ("<!-- Assembled by analysis/LRCQ/manuscript/assemble.py from draft/*.md; edit the section files, not this one. -->\n\n"
-       "*Working draft. Numbers in [square brackets] are placeholders for analyses still running.*\n\n")
+       "*Working draft.*\n\n")
 (root / "LRCQ-manuscript.md").write_text(hdr + out)
 print(f"{len(reflist)} references; citations without an entry: {missing}")
