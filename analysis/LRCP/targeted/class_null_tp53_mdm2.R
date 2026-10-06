@@ -2,8 +2,8 @@
 # the set of genome-wide candidate tags (step 13 profiles) whose deconvolved trait profile
 # correlates with the variant's at |r| >= 0.5; class covariance from those tags.
 .libPaths(c("/home/user/rlib3", .libPaths())); suppressPackageStartupMessages(library(lrcpq))
-x <- readRDS("/mnt/project-files/papers/LRCP/results/real/targeted_ldsc/tp53_mdm2_lrcp_gene_inputs.rds")
-P <- readRDS("/home/user/data/gw/out/profiles.rds")
+x <- readRDS(Sys.getenv("INPUTS", "/mnt/project-files/papers/LRCP/results/real/targeted_ldsc/tp53_mdm2_lrcp_gene_inputs.rds"))
+P <- readRDS(Sys.getenv("PROFILES", "/home/user/data/gw/out/profiles.rds"))
 tr <- read.delim("/mnt/project-files/papers/LRCQ/results/real/panukb.traits.tsv")
 tl <- read.delim("/mnt/project-files/papers/LRCQ/results/real/trait-list.tsv")
 tl$key <- sub("\\.tsv\\.bgz$", "", basename(tl$aws_path))

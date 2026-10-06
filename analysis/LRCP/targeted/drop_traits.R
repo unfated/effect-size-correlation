@@ -13,6 +13,10 @@ cand <- lapply(names(TG), function(nm) { ix <- which(w$chr == chr[[nm]]); t <- m
   sort(c(ix[!is.na(w$w_raw[ix]) & w$z[ix] >= z_min & ix != w$tag[t]], t)) }); names(cand) <- names(TG)
 A <- cand$TP53; B <- cand$MDM2
 va <- cbind(as.numeric(A == match(TG[["TP53"]], w$ID))); vb <- cbind(as.numeric(B == match(TG[["MDM2"]], w$ID)))
+# inputs for class_null_tp53_mdm2.R (A = MDM2 side, B = TP53 side)
+saveRDS(list(ZA = Z[B, ], ZB = Z[A, ], RA = L$ld$get(B), RB = L$ld$get(A), VA = vb, VB = va, n = s3$n, gcov = s3$gcov,
+             M = s3$M, intercept = s3$intercept, note = "A = MDM2 block, B = TP53 block; from drop_traits.R"),
+        file.path(OUT, "tp53_mdm2_lrcp_gene_inputs.rds"))
 run <- function(keep, lab, swap = FALSE) { set.seed(7)
   g <- if (swap) lrcp_gene(Z[B, keep], Z[A, keep], L$ld$get(B), L$ld$get(A), vb, va, n = s3$n[keep],
     gcov = s3$gcov[keep, keep], M = s3$M, intercept = s3$intercept[keep, keep], n_boot = 2000, n_sim = 0) else

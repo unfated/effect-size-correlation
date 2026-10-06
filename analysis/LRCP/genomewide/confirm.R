@@ -10,7 +10,7 @@ n_top <- as.integer(args[5]); n_boot <- as.integer(args[6])
 cand <- read.delim(CAND)
 Z <- as.matrix(read.delim(gzfile(ZF), row.names = 1, check.names = FALSE)); Z[is.na(Z)] <- 0
 P <- readRDS(file.path(OUT, "profiles.rds")); stopifnot(identical(P$ids, cand$ID))
-M <- 1094844
+M <- 1094844  # HapMap3 SNPs whose LD enters R, as in screen.R
 sc <- read.delim(gzfile(file.path(OUT, "screen_pairs_p1e-3.tsv.gz")))
 sel <- sc[sc$q_BH < 0.05 | seq_len(nrow(sc)) <= n_top, ]
 cls <- profile_classes(P$X, 0.5)

@@ -7,6 +7,8 @@
 suppressPackageStartupMessages(library(lrcpq))
 args <- commandArgs(TRUE); CAND <- args[1]; ZF <- args[2]; LDD <- args[3]; OUT <- args[4]
 dir.create(OUT, showWarnings = FALSE, recursive = TRUE)
+# n = total N (cases + controls), the n of Pan-UKB's observed-scale LDSC h2; M = number of
+# SNPs whose LD enters R (HapMap3), not Pan-UKB's M_5_50 (lrcpq::check_scale; notes/scale-check.md).
 M <- 1094844; MIN_DIST <- 5e6
 L2 <- "/mnt/project-files/papers/LRCQ/results/real/"
 cand <- read.delim(CAND)
@@ -36,7 +38,7 @@ rg <- as.matrix(read.delim(file.path(L2, "panukb_ldsc.rg.tsv"), row.names = 1, c
 ICm <- as.matrix(read.delim(file.path(L2, "panukb_ldsc.intercept.tsv"), row.names = 1, check.names = FALSE))[ids, ids]
 rg[is.na(rg)] <- 0; diag(rg) <- 1; rg <- pmin(pmax(rg, -1), 1); ICm[is.na(ICm)] <- 0
 h2 <- pmax(hh$h2_panukb_ldsc[match(ids, hh$trait_id)], 1e-3); ic <- pmax(hh$intercept_panukb[match(ids, hh$trait_id)], 1)
-n <- tr$N_eff
+n <- tr$N
 gcov <- psd(rg * sqrt(outer(h2, h2))); diag(gcov) <- h2
 intercept <- psd(ICm); diag(intercept) <- ic
 s <- n * h2 / M; ss <- sum(s^2); Tm <- scale_matrix(n, gcov, M)
