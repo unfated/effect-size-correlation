@@ -26,7 +26,11 @@ subset = open(sys.argv[7]).read().split() if len(sys.argv) > 7 else None
 
 uni = pd.read_csv("/home/user/data/ref/snp_universe.tsv", sep="\t")
 m_all = len(uni)
-M = float(open("/home/user/data/ref/UKBB.EUR.l2.M_5_50").read().split()[0])
+# M = number of SNPs whose LD enters R (the 1,094,844 HapMap3 universe SNPs), so that
+# n h2 l / M matches E[chi2] - c with l from the same reference (lrcpq::check_scale:
+# 1.13 here, 7.0 with M_5_50). Renormalising w-hat to mean 1 makes estimates and
+# model SEs exactly invariant to M; M_5_50 was used for the published run.
+M = 1094844.0
 
 # ---- annotations aligned to the universe
 ukeys = set(uni["CHR"].astype(str) + ":" + uni["BP"].astype(str))

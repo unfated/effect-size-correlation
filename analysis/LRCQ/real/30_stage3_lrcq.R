@@ -14,8 +14,8 @@
 #                 rows in the order of <out>.
 # Diagonal h2 and intercepts are Pan-UKB's own univariate LDSC values
 # (h2_panukb_ldsc, intercept_panukb); off-diagonal c_ab and h_ab come from the
-# matrix LDSC fit. Scale: s_a = n_a h2_a / M with M = M_5_50, matching the
-# LD scores used for h2; w is renormalised to mean 1 afterwards, which removes
+# matrix LDSC fit. Scale: s_a = n_a h2_a / M with M the number of SNPs in R (below);
+# w is renormalised to mean 1 afterwards, which removes
 # any common misscaling (theory S1.7).
 # Cores: middle 2 Mb of each 3 Mb window ([start+0.5, start+2.5) Mb), extended
 # to the chromosome ends for the first and last window. MHC windows skipped.
@@ -49,7 +49,11 @@ G <- (G + t(G)) / 2
 e <- eigen(G, symmetric = TRUE); G <- e$vectors %*% (pmax(e$values, 1e-8) * t(e$vectors))
 e <- eigen(C, symmetric = TRUE); C <- e$vectors %*% (pmax(e$values, 1e-4) * t(e$vectors))
 n <- traits$N
-M <- as.numeric(readLines("/home/user/data/ref/UKBB.EUR.l2.M_5_50"))
+# M = number of SNPs whose LD enters R (the 1,094,844 HapMap3 universe SNPs), so that
+# n h2 l / M matches E[chi2] - c with l from the same reference (lrcpq::check_scale:
+# 1.13 here, 7.0 with M_5_50). Renormalising w-hat to mean 1 makes estimates and
+# model SEs exactly invariant to M; M_5_50 was used for the published run.
+M <- 1094844
 
 uni <- read.delim("/home/user/data/ref/snp_universe.tsv", stringsAsFactors = FALSE)
 m_all <- nrow(uni)

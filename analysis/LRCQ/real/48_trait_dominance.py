@@ -14,7 +14,11 @@ zp, lp, rd = sys.argv[1:4]
 lab = sys.argv[4] if len(sys.argv) > 4 else "lrcq_all_ols"
 uni = pd.read_csv("/home/user/data/ref/snp_universe.tsv", sep="\t")
 tr = pd.read_csv(zp + ".traits.tsv", sep="\t")
-M = float(open("/home/user/data/ref/UKBB.EUR.l2.M_5_50").read().split()[0])
+# M = number of SNPs whose LD enters R (the 1,094,844 HapMap3 universe SNPs), so that
+# n h2 l / M matches E[chi2] - c with l from the same reference (lrcpq::check_scale:
+# 1.13 here, 7.0 with M_5_50). Renormalising w-hat to mean 1 makes estimates and
+# model SEs exactly invariant to M; M_5_50 was used for the published run.
+M = 1094844.0
 h2 = pd.read_csv(lp + ".h2.tsv", sep="\t").set_index("trait_id").loc[tr["trait_id"]]
 s = tr["N"].to_numpy() * h2["h2_panukb_ldsc"].to_numpy() / M
 c = h2["intercept_panukb"].to_numpy()
