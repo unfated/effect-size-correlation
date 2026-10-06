@@ -21,6 +21,12 @@ if (Sys.getenv("TRAITS") == "indep") {
   tl <- read.delim(file.path(L2, "trait-list.tsv")); ind <- tl$trait_id[tl$indep %in% c(TRUE, "True", 1)]
   k <- tr$trait_id %in% ind; Z <- Z[, k]; tr <- tr[k, ]; message("trait subset indep: ", sum(k))
 }
+# TRAITS=top30: the 30 'indep' traits with the largest heritability z score
+if (Sys.getenv("TRAITS") == "top30") {
+  tl <- read.delim(file.path(L2, "trait-list.tsv")); ind <- tl[tl$indep %in% c(TRUE, "True", 1), ]
+  top <- ind$trait_id[order(-ind$h2_z)][1:30]
+  k <- tr$trait_id %in% top; Z <- Z[, k]; tr <- tr[k, ]; message("trait subset top30: ", sum(k))
+}
 psd <- function(A, eps = 1e-6) { e <- eigen((A + t(A)) / 2, symmetric = TRUE)
   e$vectors %*% (pmax(e$values, eps * max(e$values)) * t(e$vectors)) }
 # plug-ins as in targeted/stage3.R (PLUGIN=ldsc): LRCQ genome-wide cross-trait LDSC
