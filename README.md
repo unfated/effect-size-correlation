@@ -1,4 +1,7 @@
 # effect-size-correlation
+
+> The R package implementing LRCP/LRCQ lives in [`lrcpq/`](lrcpq/README.md). The notes and scripts below are the original 2020 exploration.
+
 ### Simulation study
 
 #### Reminder for simulation v1

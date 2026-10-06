@@ -1,0 +1,140 @@
+---
+title: "Real data: Pan-UKB summary statistics with a 1000 Genomes LD reference"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Real data: Pan-UKB summary statistics with a 1000 Genomes LD reference}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", eval = FALSE)
+```
+
+This vignette walks through the TP53 / MDM2 analysis used as the package's
+real-data smoke test. Its code needs network access and an LD reference, so
+it is shown but not run when the package is built. The numbers quoted are
+from a run on 2026-10-05.
+
+## 1. LD reference
+
+`inst/scripts/build_1000g_eur_hm3.sh` downloads PLINK 1.9 and the 1000
+Genomes phase 3 VCFs. It writes per-chromosome PLINK files for the 503 EUR
+samples, restricted to the 1,094,844 HapMap3 SNPs of the Pan-UKB LD scores.
+
+```bash
+bash $(Rscript -e 'cat(system.file("scripts", package = "lrcpq"))')/build_1000g_eur_hm3.sh ref 12 17
+```
+
+In the files it writes, A1 is the EUR minor allele and A2 is the major
+allele. Summary statistics must be aligned to A1.
+
+```{r}
+library(lrcpq)
+ld_all <- ld_from_plink(c("12" = "ref/eur_hm3_chr12", "17" = "ref/eur_hm3_chr17"))
+blocks <- ld_blocks_eur()          # Berisa and Pickrell EUR blocks (hg19)
+```
+
+## 2. Choosing traits
+
+```{r}
+man <- panukb_manifest()           # Pan-UKB phenotype manifest from S3
+sel <- panukb_select(man, pop = "EUR", min_n = 50000)
+```
+
+Power depends on the number of *genetically independent* trait dimensions,
+not on the number of traits (theory supplement S9). For the smoke test we
+took the 30 traits with the highest h² z-scores. Most were body-composition
+traits, with only about 2 effective genetic dimensions. Choose diverse traits
+for real analyses, for example one per Pan-UKB category, pruned on genetic
+correlation.
+
+## 3. Z-scores by range request
+
+`panukb_z()` reads each phenotype's tabix index and fetches only the byte
+ranges covering the requested regions. Nothing is downloaded in full.
+
+```{r}
+reg <- function(chr, pos) {
+  b <- which(blocks$chr == chr & blocks$start <= pos & blocks$stop > pos)
+  bb <- blocks[(b - 1):(b + 1), ]
+  data.frame(chr = as.character(chr), start = min(bb$start), end = max(bb$stop))
+}
+regions <- rbind(reg(17, 7576000), reg(12, 69210000))   # TP53, MDM2 +- one block
+inr <- with(ld_all$snp, (chr == 17 & pos >= regions$start[1] & pos < regions$end[1]) |
+                         (chr == 12 & pos >= regions$start[2] & pos < regions$end[2]))
+ref <- ld_all$snp[inr, ]
+# request both allele orders; Pan-UKB ids are chr:pos:ref:alt with beta for alt
+ids <- c(paste(ref$chr, ref$pos, ref$a2, ref$a1, sep = ":"),
+         paste(ref$chr, ref$pos, ref$a1, ref$a2, sep = ":"))
+Zall <- panukb_z(sel, ids, regions = regions)
+k <- nrow(ref)
+Z <- ifelse(!is.na(Zall[1:k, ]), Zall[1:k, ], -Zall[k + 1:k, ])   # aligned to A1
+ok <- rowSums(is.na(Z)) == 0 & !paste0(ref$a1, ref$a2) %in% c("AT", "TA", "CG", "GC")
+idx <- which(inr)[ok]
+ld <- new_ld(function(i) ld_all$get(idx[i]), length(idx), ld_all$block_id[idx],
+             ld_all$snp[idx, ], ld_all$N)
+Z <- Z[ok, ]
+```
+
+All 3,893 reference SNPs in the two regions were found. With 30 traits the
+fetch took about 20 minutes.
+
+## 4. Stages 1 and 2
+
+Genetic covariances and intercepts should come from genome-wide LD score
+regression on the same traits (`ldsc_matrix()`), or from published h² and
+rg via `gcov_from_rg()`. **Do not pass a diagonal `gcov` for real traits.**
+LRCQ and LRCP standard errors would then assume genetically independent
+traits, and the pipelines warn about it.
+
+```{r}
+n  <- sel$n_cases_EUR + ifelse(is.na(sel$n_controls_EUR), 0, sel$n_controls_EUR)
+M  <- 1094844                                   # HM3 SNP universe behind D
+G  <- gcov_from_rg(h2, rg)                      # h2, rg from genome-wide LDSC
+C  <- intercept_matrix                          # cross-trait LDSC intercepts
+```
+
+A quick check of scale: the per-trait mean χ² in the regions divided by
+its expectation under `w = 1` (`C_aa + n h² l / M`) had a median of 0.97.
+
+## 5. Stage 3: LRCQ per tag clump
+
+```{r}
+fit <- run_lrcq(Z, ld, n, M, gcov = G, intercept = C, tag_r2 = 0.5)
+head(fit$w[order(-fit$w$z), c("chr", "pos", "rsid", "w_raw", "w", "se", "z")])
+```
+
+## 6. Stage 4: LRCP between the regions
+
+```{r}
+pairs <- run_lrcp(Z, ld, n, M, gcov = G, intercept = C, lrcq_fit = fit,
+                  threshold = 5, z_min = 2, min_distance = 5e6)
+head(pairs[order(pairs$p), ])
+```
+
+Results across the 4,644 tag pairs:
+
+| `gcov` used | z SD | pairs at BH q < 0.05 |
+|---|---|---|
+| diagonal (wrong) | 3.11 | 2,166 |
+| rg proxy from signal-SNP Z correlation | 1.24 | 0 |
+| rg proxy, traits shuffled in one region (null) | 0.91 | 0 |
+| genome-wide LDSC rg and intercepts (444 Pan-UKB traits), conditional test | 1.06 | 0 |
+| same, traits shuffled in one region (null) | 0.90 | 0 |
+
+The last two rows use the genome-wide stage 1-2 matrices. Take the diagonal
+and off-diagonal intercepts from the same fit: univariate intercepts on the
+diagonal with joint-fit cross-trait intercepts left this matrix indefinite,
+and the pipelines now warn about it.
+
+With few effective trait dimensions the R-projected variances in the
+denominators are noisy, so |ρ̂| > 1 is common. Report ρ̂ together with its
+z-score, because z and p do not depend on the denominators.
+
+## 7. Whole genome
+
+With OpenBLAS, per-tag LRCQ takes about 42 seconds for chromosome 22 with
+100 traits, or about 50 minutes for all HM3 SNPs. For UK Biobank traits,
+in-sample LD windows (`ld_from_windows()`) are the better reference; the
+1000G reference is the out-of-sample alternative.
