@@ -25,6 +25,12 @@ panukb_manifest <- function(path = "https://pan-ukb-us-east-1.s3.amazonaws.com/s
 #' @param sex Sex stratum (\code{"both_sexes"}).
 #' @param independent_only Keep only the maximal independent set.
 #' @param min_n Minimum EUR sample size (cases + controls).
+#' @return The selected manifest rows with column \code{n}, the total sample
+#'   size (cases + controls). Use it as \code{n} with Pan-UKB's observed-scale
+#'   h2: s_a = n h2 / M needs n from the same fit as h2, which for Pan-UKB LDSC is
+#'   the total N, not an effective N (4 p (1 - p) N for binary traits).
+#'   \code{n_eff} is kept as an alias of \code{n} for old scripts; despite its
+#'   name it is the total N.
 #' @export
 panukb_select <- function(manifest, pop = "EUR", sex = "both_sexes",
                           independent_only = FALSE, min_n = 0) {
@@ -36,7 +42,8 @@ panukb_select <- function(manifest, pop = "EUR", sex = "both_sexes",
   n <- nc + ifelse(is.na(nn), 0, nn)
   keep <- keep & !is.na(n) & n >= min_n
   out <- manifest[keep, ]
-  out$n_eff <- n[keep]
+  out$n <- n[keep]
+  out$n_eff <- out$n   # deprecated alias: total N, not an effective N
   out
 }
 

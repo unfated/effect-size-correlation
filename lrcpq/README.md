@@ -33,7 +33,7 @@ Stage 3 uses the fast OLS/WLS solution: stacking q traits gives the design `s ‚ä
 |---|---|
 | Pan-UKB phenotypes and Z-scores (tabix + HTTP range requests, no full download) | `panukb_manifest()`, `panukb_select()`, `panukb_z()` |
 | LD reference | `ld_from_plink()` (1000G EUR, built by `inst/scripts/build_1000g_eur_hm3.sh`), `ld_from_windows()` (UKB in-sample LD windows), `ld_blocks_eur()`, `harmonise_alleles()` |
-| Pipelines | `run_lrcq()` (stages 1-3), `run_lrcp()` (screen on `w`, distal block pairs, BH/BY q-values), `gcov_from_rg()`, `prune_traits()` |
+| Pipelines | `run_lrcq()` (stages 1-3), `run_lrcp()` (screen on `w`, distal block pairs, BH/BY q-values), `gcov_from_rg()`, `prune_traits()`, `check_scale()` (n, h2 and M on one scale) |
 | Aggregation | `lrcq_category()`, `lrcq_annot_regression()`, `trait_weights()` |
 | Power | `power_lrcq()`, `power_lrcp()`, `detectable_effect()` |
 

@@ -2,6 +2,7 @@
 
 S3method(print,lrcpq_ld)
 export(assign_blocks)
+export(check_scale)
 export(class_covariance)
 export(detectable_effect)
 export(effective_traits)

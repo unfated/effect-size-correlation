@@ -12,7 +12,9 @@
 #' @param ld An \code{lrcpq_ld} object.
 #' @param n Sample sizes.
 #' @param M Number of SNPs heritability refers to (the size of the SNP
-#'   universe behind \code{D}, e.g. 1,094,844 HapMap3 SNPs).
+#'   universe behind \code{D}, e.g. 1,094,844 HapMap3 SNPs; not Pan-UKB's
+#'   M_5_50, see [check_scale()]). \code{n} is the total N from the same fit
+#'   as h2.
 #' @param gcov,intercept Stage 1-2 inputs, or \code{NULL} to estimate.
 #' @param ldscore LD scores for stage 1-2 estimation.
 #' @param tag_r2 Clump threshold (\code{NULL} for per-SNP estimates).
@@ -245,4 +247,29 @@ prune_traits <- function(rg, priority = rep(1, nrow(rg)), max_rg = 0.5,
     if (!length(keep) || all(abs(rg[i, keep]) <= max_rg | is.na(rg[i, keep]))) keep <- c(keep, i)
   }
   keep
+}
+
+#' Check the scale of n, h2 and M against the data
+#'
+#' Per-trait ratio of the observed mean chi-square signal to the signal
+#' expected under \eqn{w = 1}: \eqn{(\overline{z^2} - C_{aa}) /
+#' (n_a h^2_a \bar\ell / M)}, with \eqn{\ell} the LD scores of the analysed
+#' SNPs computed within the same reference as \code{R}. A median near 1 means
+#' n, h2 and M are on one scale. \code{M} is the number of SNPs the model
+#' spreads h2 over, i.e. the SNPs whose LD enters \code{R} (1,094,844 for the
+#' Pan-UKB HapMap3 set), not the M_5_50 count that Pan-UKB's own LDSC used with
+#' full-panel LD scores. In the TP53/MDM2 smoke test, Pan-UKB h2 with total N gave
+#' a median of 0.95 with M = 1,094,844 and 5.9 with M_5_50 = 6,805,960. Use
+#' genome-wide or large regions; small regions are noisy and enriched.
+#'
+#' @param Z,ld,n,M As in [lrcq()].
+#' @param h2 Length-q heritabilities from the same fit as \code{n}.
+#' @param intercept Length-q univariate LDSC intercepts (default 1).
+#' @return Length-q vector of ratios.
+#' @export
+check_scale <- function(Z, ld, n, h2, M, intercept = 1) {
+  Z <- as.matrix(Z)
+  l <- mean(ld_scores(ld))
+  intercept <- rep_len(intercept, ncol(Z))
+  (colMeans(Z^2) - intercept) / (n * h2 * l / M)
 }

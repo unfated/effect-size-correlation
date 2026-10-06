@@ -27,7 +27,9 @@ run_lrcq(
 \item{n}{Sample sizes.}
 
 \item{M}{Number of SNPs heritability refers to (the size of the SNP
-universe behind \code{D}, e.g. 1,094,844 HapMap3 SNPs).}
+universe behind \code{D}, e.g. 1,094,844 HapMap3 SNPs; not Pan-UKB's
+M_5_50, see [check_scale()]). \code{n} is the total N from the same fit
+as h2.}
 
 \item{gcov, intercept}{Stage 1-2 inputs, or \code{NULL} to estimate.}
 

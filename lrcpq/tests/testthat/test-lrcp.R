@@ -136,3 +136,13 @@ test_that("candidates with non-positive variance are dropped, not an error", {
   expect_warning(lrcp_distal(sim$Z[1:30, ], sim$Z[31:60, ], s$blocks[[1]], s$blocks[[2]],
                              w1, s$w[31:60], s$n, s$gcov, s$M, S1 = c(2, 5, 12, 20)), "dropped")
 })
+
+test_that("check_scale is about 1 when n, h2 and M match the simulation", {
+  set.seed(5)
+  b <- make_ld_ar1(rep(50, 20), 0.5); ld <- ld_from_blocks(b)
+  q <- 5; n <- rep(2e5, q); g <- make_gcov(q, h2 = rep(0.3, q))$gcov
+  sim <- simulate_lrcpq(b, n = n, w = rep(1, ld$m), gcov = g, M = 2e4)
+  r <- check_scale(sim$Z, ld, n, diag(g), M = 2e4)
+  expect_true(abs(median(r) - 1) < 0.25)
+  expect_true(median(check_scale(sim$Z, ld, n, diag(g), M = 2e5)) > 5)
+})
