@@ -49,7 +49,7 @@ one_rep <- function(q, rho, traits, ld_r, M, do_mle = FALSE) {
     # MLE on a small screened set: the 3 pair SNPs + 2 random other candidates per region
     s1 <- sort(unique(c(pr[, 1], sample(setdiff(nz1, pr[, 1]), 2))))
     s2 <- sort(unique(c(pr[, 2] - 200, sample(setdiff(nz2 - 200, pr[, 2] - 200), 2))))
-    a2 <- args; a2$S1 <- s1; a2$S2 <- s2
+    a2 <- args; a2$S1 <- s1; a2$S2 <- s2; a2$denominators <- NULL
     fm <- do.call(lrcp_mle, a2)
     res$mle <- fm$rho[cbind(match(pr[, 1], s1), match(pr[, 2] - 200, s2))]
     res$mle_se <- fm$se[cbind(match(pr[, 1], s1), match(pr[, 2] - 200, s2))]
