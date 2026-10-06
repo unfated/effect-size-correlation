@@ -19,6 +19,7 @@ Monte Carlo and exact checks for the identities in the theory supplement
 | `checks/check_nonseparable.py` | S8.5 | LRCP pair tests under non-separable (mediator-class) effects: separable vs class-null vs own-block variance |
 | `checks/check_burden_null.py` | S8.2a | window covariance in the gene-burden null: diagonal vs local moment vs conditional bootstrap |
 | `checks/check_jackknife_overlap.py` | S3.6 | trait-cluster jackknife misses between-cluster covariance under sample overlap |
+| `checks/check_mle_null_w.py` | S4.5 | Gaussian MLE of w with 10% w = 0 (v6 slide 136 design) puts nulls at 0; the slide's failure was numerical |
 | `checks/check_moments.py` | S2.4, S3.4, S5 | Isserlis fourth moments, point-normal excess kurtosis, one-mediator second/fourth moments |
 
 | `power/power_tables.py` | S9 | analytic power tables (CSV): per-clump and category LRCQ, pair LRCP, q_eff under overlap |
