@@ -20,7 +20,7 @@ for k, c in col.items():
     ax[0].errorbar(d.rho[m], y[m], xerr=[d.rho[m] - lo[m], hi[m] - d.rho[m]], fmt="o", color=c, label=k, capsize=2)
     ax[0].scatter(d.r_naive[m], y[m], marker="x", color="k", s=18)
 ax[0].axvline(0, color="k", lw=.5); ax[0].set_yticks(y); ax[0].set_yticklabels(d.label, fontsize=8)
-ax[0].set(xlabel="ρ̂ (LRCP-GLS, 95% CI); × = naive r", title="a  Named-variant pairs, 452 Pan-UKB traits", xlim=(-2.6, 2.6))
+ax[0].set(xlabel="ρ̂ (LRCP-GLS, 95% CI); × = naive r", title="a  Named-variant pairs, 444 Pan-UKB traits", xlim=(-2.6, 2.6))
 ax[0].legend(fontsize=7, loc="lower right")
 ax[1].barh(y, -np.log10(d.p_Q), color=[col[k] for k in d.kind])
 ax[1].axvline(-np.log10(0.05), color="k", lw=.5, ls="--"); ax[1].set_yticks(y); ax[1].set_yticklabels([])
